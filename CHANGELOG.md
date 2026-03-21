@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-03-21
+
+### 🚀 Added
+- **10-Man Group Tracking:** Added support for multiple progression rosters. Loot dropped in 10-man raids (Karazhan, Zul'Aman) can now be tagged to a specific group (Group 1 through 5). All 25-man raid loot safely defaults to the "Main Raid" tag.
+- **Triple-Dropdown Filtering:** Upgraded the viewer UI to support 3-way sorting. You can now filter your loot history by Zone, then by Group, and finally by Date. 
+- **Passive Version Checker:** The addon now silently checks versions with other guild members upon logging in. If your version is out of date, it will print a helpful red warning in chat directing you to download the latest version from CurseForge.
+- **Group CSV Export:** The CSV Exporter has been updated to include a dedicated "Group" column to keep your spreadsheets perfectly organized.
+
+### 🔒 Security & Permissions
+- **Complete Options Lockout:** The entire internal Options panel (Minimum Quality, Ignore List, Active 10-Man Group, and the Death Announcer) is now strictly locked and visually grayed out for normal guild members. Only Officers with Sync Access can change how the addon tracks loot.
+
+---
 
 ## [1.4.0] - 2026-03-21
 

@@ -1,4 +1,5 @@
--- Initialize saved variables
+-- Initialize saved variables & Version
+WHB_CURRENT_VERSION = "1.5.0"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -11,6 +12,7 @@ WHBSettings = WHBSettings or {
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:RegisterEvent("CHAT_MSG_LOOT")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
@@ -18,15 +20,30 @@ frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 -- Register our secret Addon channel prefix for Guild Syncing
 C_ChatInfo.RegisterAddonMessagePrefix("WHBLoot")
 
--- Tables for sync management
+-- Tables & Flags for sync management
 local WHBSyncAcks = nil
 local WHBReceivingSyncFrom = nil
+local hasNotifiedUpdate = false
+local hasBroadcastVersion = false
 
 -- Safe helper function to get rank and avoid nil errors if not in a guild
 local function GetSafeRank()
     if not IsInGuild() then return 99 end
     local _, _, rank = GetGuildInfo("player")
     return rank or 99
+end
+
+-- Helper to compare semantic versions (e.g. 1.5.0 vs 1.4.0)
+local function IsNewerVersion(remoteVer)
+    local v1, v2, v3 = strsplit(".", WHB_CURRENT_VERSION)
+    local r1, r2, r3 = strsplit(".", remoteVer)
+    v1, v2, v3 = tonumber(v1) or 0, tonumber(v2) or 0, tonumber(v3) or 0
+    r1, r2, r3 = tonumber(r1) or 0, tonumber(r2) or 0, tonumber(r3) or 0
+    
+    if r1 > v1 then return true end
+    if r1 == v1 and r2 > v2 then return true end
+    if r1 == v1 and r2 == v2 and r3 > v3 then return true end
+    return false
 end
 
 ----------------------------------------
@@ -65,7 +82,15 @@ frame:SetScript("OnEvent", function(self, event, ...)
             if WHBSettings.announcePlayer == nil then WHBSettings.announcePlayer = false end
             if WHBSettings.announcePlayerName == nil then WHBSettings.announcePlayerName = "Realpower" end
             
-            print("|cFF00FF00[WHB Loot Tracker]|r loaded! Type /whbloot to open.")
+            print("|cFF00FF00[WHB Loot Tracker v" .. WHB_CURRENT_VERSION .. "]|r loaded! Type /whbloot to open.")
+        end
+
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        if IsInGuild() and not hasBroadcastVersion then
+            C_Timer.After(5, function() 
+                C_ChatInfo.SendAddonMessage("WHBLoot", "VER_CHECK~" .. WHB_CURRENT_VERSION, "GUILD") 
+            end)
+            hasBroadcastVersion = true
         end
 
     elseif event == "CHAT_MSG_LOOT" then
@@ -83,7 +108,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
                     local timestamp = date("%Y-%m-%d %H:%M:%S")
                     local dateOnlyStr = date("%Y-%m-%d")
                     
-                    -- Tag 10-Man Groups
                     local rGroup = "Main Raid"
                     if zoneName == "Karazhan" or zoneName == "Zul'Aman" then
                         rGroup = WHBSettings.activeGroup
@@ -102,6 +126,16 @@ frame:SetScript("OnEvent", function(self, event, ...)
         local prefix, text, channel, sender = ...
         if prefix == "WHBLoot" and sender ~= UnitName("player") then
             local cleanSender = sender:match("([^%-]+)") or sender
+            
+            -- Handle Version Checking
+            if text:match("^VER_CHECK~") then
+                local remoteVer = text:match("^VER_CHECK~(.+)")
+                if remoteVer and not hasNotifiedUpdate and IsNewerVersion(remoteVer) then
+                    print("|cFFFF0000[WHB Loot Tracker]|r A new version (v" .. remoteVer .. ") is available! Please download the latest version from CurseForge.")
+                    hasNotifiedUpdate = true
+                end
+                return
+            end
             
             if text:match("^PERM_SYNC:") then
                 local permData = text:gsub("PERM_SYNC:", "")
@@ -160,7 +194,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
 
-            -- Normal Loot Data Syncing (Using strsplit to handle optional 6th param cleanly)
             local tTime, tDate, tPlayer, tItem, tZone, tGroup = strsplit("~", text)
             if tTime and tItem then
                 if not WHBReceivingSyncFrom then
@@ -227,9 +260,8 @@ resizeGrip:SetScript("OnMouseUp", function() mainWindow:StopMovingOrSizing() end
 
 mainWindow.title = mainWindow:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 mainWindow.title:SetPoint("CENTER", mainWindow.TitleBg, "CENTER", 0, 0)
-mainWindow.title:SetText("WHB Loot Tracker - Viewer")
+mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
 
--- 3-Way Filtering Dropdowns
 local zoneDropdown = CreateFrame("Frame", "WHBZoneDropdown", mainWindow, "UIDropDownMenuTemplate")
 zoneDropdown:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 0, -30)
 
@@ -355,12 +387,11 @@ messageFrame:SetScript("OnHyperlinkClick", function(self, link, text, button)
 end)
 
 ----------------------------------------
--- INTERNAL OPTIONS PANEL (Restructured)
+-- INTERNAL OPTIONS PANEL 
 ----------------------------------------
 local optionsFrame = CreateFrame("Frame", nil, mainWindow)
 optionsFrame:SetPoint("TOPLEFT", 10, -30); optionsFrame:SetPoint("BOTTOMRIGHT", -10, 40); optionsFrame:Hide()
 
--- Quality
 local qualityBtn = CreateFrame("Button", "WHBQualityBtn", optionsFrame, "UIPanelButtonTemplate")
 qualityBtn:SetPoint("TOP", 0, -10); qualityBtn:SetSize(250, 30)
 local function UpdateQualityText()
@@ -374,7 +405,6 @@ qualityBtn:SetScript("OnClick", function()
     UpdateQualityText()
 end)
 
--- Active 10-Man Group Settings
 local activeGroupLabel = optionsFrame:CreateFontString("WHBActiveGroupLabel", "OVERLAY", "GameFontNormal")
 activeGroupLabel:SetPoint("TOPLEFT", 16, -55)
 activeGroupLabel:SetText("Active 10-Man Group Tag:")
@@ -398,7 +428,6 @@ local function InitializeActiveGroupDropdown(self, level)
     end
 end
 
--- Raid Ignore List
 local raidLabel = optionsFrame:CreateFontString("WHBRaidLabel", "OVERLAY", "GameFontNormal")
 raidLabel:SetPoint("TOP", qualityBtn, "BOTTOM", 0, -45); raidLabel:SetText("Ignore Loot Tracking in:")
 
@@ -413,7 +442,6 @@ for i, raid in ipairs(tbcRaids) do
     cb:SetScript("OnClick", function(self) WHBSettings.ignoredZones[raid] = self:GetChecked() end)
 end
 
--- Death Announcer
 local daCb = CreateFrame("CheckButton", "WHBDeathAnnounceCB", optionsFrame, "UICheckButtonTemplate")
 daCb:SetPoint("TOPLEFT", 30, -220); daCb:SetSize(22, 22)
 daCb.text = daCb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -426,7 +454,6 @@ daEdit:SetPoint("LEFT", daCb.text, "RIGHT", 10, 0); daEdit:SetSize(100, 20); daE
 daEdit:SetScript("OnShow", function(self) self:SetText(WHBSettings.announcePlayerName or "Realpower") end)
 daEdit:SetScript("OnTextChanged", function(self) WHBSettings.announcePlayerName = self:GetText() end)
 
--- Perm Grid
 local permLabel = optionsFrame:CreateFontString("WHBPermLabel", "OVERLAY", "GameFontNormal")
 permLabel:SetPoint("TOPLEFT", 16, -250); permLabel:SetText("Ranks Allowed to Push Full Sync (GM Only):")
 
@@ -464,7 +491,6 @@ local function BuildPermGrid()
     end
 end
 
--- Apply Officer Lockdowns
 local function ApplyOfficerLockdowns()
     local playerRank = GetSafeRank()
     local hasPerms = WHBSettings.allowedRanks and WHBSettings.allowedRanks[playerRank]
@@ -491,7 +517,6 @@ local function ApplyOfficerLockdowns()
     end
 end
 
--- Bottom Buttons
 local syncBtn = CreateFrame("Button", "WHBPushSyncBtn", optionsFrame, "UIPanelButtonTemplate")
 syncBtn:SetPoint("BOTTOMLEFT", 15, 30); syncBtn:SetSize(140, 30); syncBtn:SetText("Push DB to Guild")
 
@@ -583,7 +608,7 @@ clearBtn:SetScript("OnClick", function()
 end)
 
 ----------------------------------------
--- VIEWER LOGIC & DUAL DROPDOWNS
+-- VIEWER LOGIC & DROPDOWNS
 ----------------------------------------
 function UpdateViewer()
     messageFrame:Clear(); local hasData = false
@@ -703,7 +728,7 @@ exportBtn:SetScript("OnClick", function()
         end
         exportEditBox:SetText(csvData); viewerScroll:Show(); exportEditBox:Show(); viewerScroll:SetScrollChild(exportEditBox); exportEditBox:HighlightText()
     else
-        mainWindow.title:SetText("WHB Loot Tracker - Viewer"); exportBtn:SetText("Export CSV"); zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); viewerScroll:Show(); messageFrame:Show()
+        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION); exportBtn:SetText("Export CSV"); zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); viewerScroll:Show(); messageFrame:Show()
     end
 end)
 
@@ -719,7 +744,7 @@ optionsToggleBtn:SetScript("OnClick", function()
         if not IsInGuild() then reqSyncBtn:Disable() else reqSyncBtn:Enable() end
         if playerRank == 0 then clearBtn:Enable() else clearBtn:Disable() end
     else
-        mainWindow.title:SetText("WHB Loot Tracker - Viewer"); optionsToggleBtn:SetText("Options")
+        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION); optionsToggleBtn:SetText("Options")
         zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); viewerScroll:Show(); messageFrame:Show()
     end
 end)
