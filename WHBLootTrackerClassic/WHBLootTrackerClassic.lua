@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.5.0"
+WHB_CURRENT_VERSION = "1.5.1"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -271,8 +271,23 @@ groupDropdown:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 180, -30)
 local dateDropdown = CreateFrame("Frame", "WHBDateDropdown", mainWindow, "UIDropDownMenuTemplate")
 dateDropdown:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 360, -30)
 
+-- NEW: Player Search Bar
+local searchLabel = mainWindow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+searchLabel:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 20, -65)
+searchLabel:SetText("Search Player:")
+
+local searchBox = CreateFrame("EditBox", "WHBSearchBox", mainWindow, "InputBoxTemplate")
+searchBox:SetPoint("LEFT", searchLabel, "RIGHT", 10, 0)
+searchBox:SetSize(150, 20)
+searchBox:SetAutoFocus(false)
+searchBox:SetScript("OnTextChanged", function(self)
+    if UpdateViewer then UpdateViewer() end
+end)
+searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+-- Pushed down slightly to fit the search bar
 local viewerScroll = CreateFrame("ScrollFrame", "WHBViewerScroll", mainWindow, "UIPanelScrollFrameTemplate")
-viewerScroll:SetPoint("TOPLEFT", 10, -65); viewerScroll:SetPoint("BOTTOMRIGHT", -30, 40)
+viewerScroll:SetPoint("TOPLEFT", 10, -95); viewerScroll:SetPoint("BOTTOMRIGHT", -30, 40)
 
 local messageFrame = CreateFrame("ScrollingMessageFrame", nil, viewerScroll)
 messageFrame:SetSize(560, 390); messageFrame:SetFontObject(ChatFontNormal); messageFrame:SetJustifyH("LEFT")
@@ -285,7 +300,7 @@ local exportEditBox = CreateFrame("EditBox", nil, viewerScroll)
 exportEditBox:SetMultiLine(true); exportEditBox:SetFontObject(ChatFontNormal); exportEditBox:SetWidth(560); exportEditBox:Hide()
 
 mainWindow:SetScript("OnSizeChanged", function(self, width, height)
-    local newWidth = width - 40; local newHeight = height - 130 
+    local newWidth = width - 40; local newHeight = height - 160 
     if newWidth > 0 and newHeight > 0 then messageFrame:SetSize(newWidth, newHeight); exportEditBox:SetWidth(newWidth) end
 end)
 
@@ -603,6 +618,7 @@ clearBtn:SetScript("OnClick", function()
     local playerRank = GetSafeRank()
     if playerRank ~= 0 then return end
     WHBLootData = {}; currentSelectedZone = "All Zones"; currentSelectedGroup = "All Groups"; currentSelectedDate = "All Dates"
+    searchBox:SetText("")
     if UpdateViewer then UpdateViewer() end
     print("|cFF00FF00[WHB Loot Tracker]|r All data cleared.")
 end)
@@ -615,6 +631,7 @@ function UpdateViewer()
     
     local playerRank = GetSafeRank()
     local hasPerms = (WHBSettings.allowedRanks and WHBSettings.allowedRanks[playerRank])
+    local searchText = (searchBox and searchBox:GetText() or ""):lower()
 
     for i, entry in ipairs(WHBLootData) do
         local entryZone = entry.zone or "Unknown"
@@ -624,8 +641,9 @@ function UpdateViewer()
         local zoneMatch = (currentSelectedZone == "All Zones" or currentSelectedZone == entryZone)
         local groupMatch = (currentSelectedGroup == "All Groups" or currentSelectedGroup == entryGroup)
         local dateMatch = (currentSelectedDate == "All Dates" or currentSelectedDate == entryDate)
+        local playerMatch = (searchText == "" or string.find((entry.player or ""):lower(), searchText, 1, true) ~= nil)
         
-        if zoneMatch and groupMatch and dateMatch then
+        if zoneMatch and groupMatch and dateMatch and playerMatch then
             local displayTime = entry.time
             if hasPerms then displayTime = "|Hwhbctx:" .. i .. "|h|cFFFFD100" .. entry.time .. "|r|h" end
             
@@ -705,14 +723,24 @@ local optionsToggleBtn = CreateFrame("Button", nil, mainWindow, "UIPanelButtonTe
 optionsToggleBtn:SetPoint("LEFT", exportBtn, "RIGHT", 10, 0); optionsToggleBtn:SetSize(100, 25); optionsToggleBtn:SetText("Options")
 
 local isExportMode = false; local isOptionsMode = false
-local function ResetViews() viewerScroll:Hide(); exportEditBox:Hide(); optionsFrame:Hide(); zoneDropdown:Hide(); groupDropdown:Hide(); dateDropdown:Hide() end
+local function ResetViews() 
+    viewerScroll:Hide(); exportEditBox:Hide(); optionsFrame:Hide(); 
+    zoneDropdown:Hide(); groupDropdown:Hide(); dateDropdown:Hide();
+    searchLabel:Hide(); searchBox:Hide()
+end
 
 exportBtn:SetScript("OnClick", function()
     isExportMode = not isExportMode; isOptionsMode = false; ResetViews()
     if isExportMode then
         mainWindow.title:SetText("WHB Loot Tracker - Export")
         exportBtn:SetText("Back")
+        
+        -- Keep search and dropdowns visible so you know what you are exporting
+        zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show()
+        
         local csvData = "Date,Player,Item,Zone,Group\n"
+        local searchText = (searchBox and searchBox:GetText() or ""):lower()
+        
         for _, entry in ipairs(WHBLootData) do
             local entryZone = entry.zone or "Unknown"
             local entryGroup = entry.group or "Main Raid"
@@ -721,14 +749,16 @@ exportBtn:SetScript("OnClick", function()
             local zoneMatch = (currentSelectedZone == "All Zones" or currentSelectedZone == entryZone)
             local groupMatch = (currentSelectedGroup == "All Groups" or currentSelectedGroup == entryGroup)
             local dateMatch = (currentSelectedDate == "All Dates" or currentSelectedDate == entryDate)
+            local playerMatch = (searchText == "" or string.find((entry.player or ""):lower(), searchText, 1, true) ~= nil)
             
-            if zoneMatch and groupMatch and dateMatch then
+            if zoneMatch and groupMatch and dateMatch and playerMatch then
                 csvData = csvData .. entry.time .. "," .. (entry.player or "Unknown") .. "," .. (entry.item or "Unknown") .. "," .. entryZone .. "," .. entryGroup .. "\n"
             end
         end
         exportEditBox:SetText(csvData); viewerScroll:Show(); exportEditBox:Show(); viewerScroll:SetScrollChild(exportEditBox); exportEditBox:HighlightText()
     else
-        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION); exportBtn:SetText("Export CSV"); zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); viewerScroll:Show(); messageFrame:Show()
+        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION); exportBtn:SetText("Export CSV")
+        zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
     end
 end)
 
@@ -745,7 +775,7 @@ optionsToggleBtn:SetScript("OnClick", function()
         if playerRank == 0 then clearBtn:Enable() else clearBtn:Disable() end
     else
         mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION); optionsToggleBtn:SetText("Options")
-        zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); viewerScroll:Show(); messageFrame:Show()
+        zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
     end
 end)
 
@@ -766,6 +796,12 @@ end
 
 SLASH_WHBTEST1 = "/whbtest"
 SlashCmdList["WHBTEST"] = function()
+    local playerRank = GetSafeRank()
+    if not (WHBSettings.allowedRanks and WHBSettings.allowedRanks[playerRank]) then
+        print("|cFFFF0000[WHB Loot Tracker]|r Permission Denied: You must have Sync Access to inject test data.")
+        return
+    end
+
     local myName = UnitName("player") or "Unknown"
     table.insert(WHBLootData, { time = "2004-05-24 19:30:00", dateOnly = "2004-05-24", player = myName, item = "|cffff8000|Hitem:32837:::::::::::::|h[Warglaive of Azzinoth]|h|r", zone = "Black Temple", group = "Main Raid" })
     print("|cFF00FF00[WHB Loot Tracker]|r Test entry added for " .. myName .. "!")
