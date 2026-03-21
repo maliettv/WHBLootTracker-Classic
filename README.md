@@ -1,5 +1,5 @@
 # WHB Loot Tracker Classic
-![Addon Icon](https://raw.githubusercontent.com/maliettv/WHBLootTrackerClassic/main/icon.png)
+![Addon Icon](logo.png)
 
 **WHB Loot Tracker Classic** is a lightweight, high-performance World of Warcraft addon designed specifically for the **Waffle House Brawlers** guild. It automates raid loot recording, provides real-time database syncing between members, and offers a seamless export path to spreadsheets like Excel or Google Sheets.
 
@@ -63,3 +63,7 @@
 * **Author:** Maliettv-Nightslayer US
 * **Guild:** Waffle House Brawlers
 * **Copyright:** © 2026 Maliettv-Nightslayer US - Waffle House Brawlers
+
+Made with ❤️ for Fartjars and Waffle House Brawlers Community.
+
+No Realpowers died during the development of this Addon. 
