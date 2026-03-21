@@ -3,7 +3,15 @@
 All notable changes to this project will be documented in this file.
 
 
-# Changelog - WHB Loot Tracker Classic
+## [1.4.0] - 2026-03-21
+
+### 🚀 Added
+- **Loot Reassignment Engine:** Officers with sync permissions can now modify who received a piece of loot after it has already been recorded. Right-click the gold timestamp to access the new modification menu.
+- **Custom Player Assignment:** Added an "Assign to Player..." option. This opens a clean, focused text box where you can manually type in the correct player's name to fix misclicks.
+- **Bank & Disenchant Tracking:** Added quick-action buttons to the right-click menu to instantly reassign an item's recipient to "Bank" or "Disenchant".
+- **Real-Time Modification Syncing:** Built a new `MOD~` protocol into the guild sync system. Whenever an officer reassigns an item, sends it to the bank, or marks it for disenchantment, the change is instantly beamed to everyone else's database in the guild without needing to push a full sync.
+
+---
 
 ## [1.3.0] - 2026-03-20
 

@@ -110,6 +110,22 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 end
                 return
             end
+            
+            -- NEW: Handle Remote Reassignments (Bank/Disenchant/Player Swap)
+            if text:match("^MOD~") then
+                local modTime, modOldPlayer, modItem, modNewPlayer = text:match("^MOD~([^~]+)~([^~]+)~([^~]+)~(.+)")
+                if modTime and modNewPlayer then
+                    for i = #WHBLootData, 1, -1 do
+                        local entry = WHBLootData[i]
+                        if entry.time == modTime and entry.player == modOldPlayer and entry.item == modItem then
+                            entry.player = modNewPlayer
+                            if WHBMainWindow and WHBMainWindow:IsShown() and UpdateViewer then UpdateViewer() end
+                            break
+                        end
+                    end
+                end
+                return
+            end
 
             -- Handle Normal Loot Data Syncing
             local tTime, tDate, tPlayer, tItem, tZone = text:match("([^~]+)~([^~]+)~([^~]+)~([^~]+)~?(.*)")
@@ -193,9 +209,63 @@ mainWindow:SetScript("OnSizeChanged", function(self, width, height)
 end)
 
 ----------------------------------------
--- RIGHT-CLICK CONTEXT MENU
+-- RIGHT-CLICK CONTEXT MENU & REASSIGN
 ----------------------------------------
 WHBContextIndex = nil
+
+-- The text-entry popup frame for Reassigning to a new player
+local WHBReassignFrame = CreateFrame("Frame", "WHBReassignFrame", UIParent, "BasicFrameTemplateWithInset")
+WHBReassignFrame:SetSize(250, 110)
+WHBReassignFrame:SetPoint("CENTER")
+WHBReassignFrame:SetFrameStrata("DIALOG")
+WHBReassignFrame:Hide()
+
+WHBReassignFrame.title = WHBReassignFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+WHBReassignFrame.title:SetPoint("CENTER", WHBReassignFrame.TitleBg, "CENTER", 0, 0)
+WHBReassignFrame.title:SetText("Reassign Loot")
+
+local reassignLabel = WHBReassignFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+reassignLabel:SetPoint("TOP", 0, -35)
+reassignLabel:SetText("Enter new player name:")
+
+local reassignEditBox = CreateFrame("EditBox", nil, WHBReassignFrame, "InputBoxTemplate")
+reassignEditBox:SetPoint("TOP", 0, -55)
+reassignEditBox:SetSize(150, 20)
+reassignEditBox:SetAutoFocus(true)
+
+local reassignBtn = CreateFrame("Button", nil, WHBReassignFrame, "UIPanelButtonTemplate")
+reassignBtn:SetPoint("BOTTOMLEFT", 15, 10)
+reassignBtn:SetSize(100, 25)
+reassignBtn:SetText("Assign")
+
+local reassignCancelBtn = CreateFrame("Button", nil, WHBReassignFrame, "UIPanelButtonTemplate")
+reassignCancelBtn:SetPoint("BOTTOMRIGHT", -15, 10)
+reassignCancelBtn:SetSize(100, 25)
+reassignCancelBtn:SetText("Cancel")
+
+-- The function that does the actual reassignment and broadcasts it
+local function PerformReassign(index, newName)
+    if not index or not newName or newName == "" then return end
+    local entry = WHBLootData[index]
+    if not entry then return end
+    
+    if IsInGuild() then
+        local msg = "MOD~" .. entry.time .. "~" .. entry.player .. "~" .. entry.item .. "~" .. newName
+        C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
+    end
+    
+    entry.player = newName
+    if UpdateViewer then UpdateViewer() end
+    print("|cFF00FF00[WHB Loot Tracker]|r Loot reassigned to " .. newName .. ".")
+    WHBReassignFrame:Hide()
+end
+
+reassignBtn:SetScript("OnClick", function() PerformReassign(WHBContextIndex, reassignEditBox:GetText()) end)
+reassignEditBox:SetScript("OnEnterPressed", function() PerformReassign(WHBContextIndex, reassignEditBox:GetText()) end)
+reassignEditBox:SetScript("OnEscapePressed", function() WHBReassignFrame:Hide() end)
+reassignCancelBtn:SetScript("OnClick", function() WHBReassignFrame:Hide() end)
+
+-- The Dropdown Menu
 local WHBContextMenu = CreateFrame("Frame", "WHBContextMenu", UIParent, "UIDropDownMenuTemplate")
 local function InitializeContextMenu(self, level)
     if not WHBContextIndex then return end
@@ -210,6 +280,32 @@ local function InitializeContextMenu(self, level)
     titleInfo.notCheckable = true
     UIDropDownMenu_AddButton(titleInfo, level)
 
+    -- Option 1: Assign to Player
+    local reassignPlayerInfo = UIDropDownMenu_CreateInfo()
+    reassignPlayerInfo.text = "Assign to Player..."
+    reassignPlayerInfo.notCheckable = true
+    reassignPlayerInfo.func = function()
+        WHBReassignFrame:Show()
+        reassignEditBox:SetText(entry.player)
+        reassignEditBox:HighlightText()
+    end
+    UIDropDownMenu_AddButton(reassignPlayerInfo, level)
+
+    -- Option 2: Send to Bank
+    local bankInfo = UIDropDownMenu_CreateInfo()
+    bankInfo.text = "Send to Bank"
+    bankInfo.notCheckable = true
+    bankInfo.func = function() PerformReassign(WHBContextIndex, "Bank") end
+    UIDropDownMenu_AddButton(bankInfo, level)
+
+    -- Option 3: Disenchant
+    local deInfo = UIDropDownMenu_CreateInfo()
+    deInfo.text = "Disenchant"
+    deInfo.notCheckable = true
+    deInfo.func = function() PerformReassign(WHBContextIndex, "Disenchant") end
+    UIDropDownMenu_AddButton(deInfo, level)
+
+    -- Option 4: Remove Line Item
     local delInfo = UIDropDownMenu_CreateInfo()
     delInfo.text = "Remove Line Item"
     delInfo.notCheckable = true
@@ -297,7 +393,6 @@ local function BuildPermGrid()
     local playerRank = GetSafeRank()
     local isGM = (playerRank == 0)
 
-    -- Build or update up to 10 ranks safely, hiding any unused/unguilded boxes
     for i = 1, 10 do
         local rankIdx = i - 1
         local cbName = "WHBPermCB"..rankIdx
