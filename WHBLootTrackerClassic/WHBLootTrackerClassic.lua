@@ -82,7 +82,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
             if WHBSettings.announcePlayer == nil then WHBSettings.announcePlayer = false end
             if WHBSettings.announcePlayerName == nil then WHBSettings.announcePlayerName = "Realpower" end
             
-            print("|cFF00FF00[WHB Loot Tracker v" .. WHB_CURRENT_VERSION .. "]|r loaded! Type /whbloot to open.")
+            print("|cFF00FF00[WHB Loot Tracker v" .. WHB_CURRENT_VERSION .. "]|r loaded! Type /whb or /whbloot to open.")
         end
 
     elseif event == "PLAYER_ENTERING_WORLD" then
@@ -749,7 +749,11 @@ optionsToggleBtn:SetScript("OnClick", function()
     end
 end)
 
+----------------------------------------
+-- SLASH COMMANDS
+----------------------------------------
 SLASH_WHBLOOT1 = "/whbloot"
+SLASH_WHBLOOT2 = "/whb"
 SlashCmdList["WHBLOOT"] = function()
     if mainWindow:IsShown() then mainWindow:Hide()
     else 
