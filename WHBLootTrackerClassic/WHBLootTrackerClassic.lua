@@ -3,8 +3,9 @@ WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
     ignoredZones = {},
-    announceRealpower = false,
-    officerRankIndex = 1 -- Default to 1 (Rank right below Guild Master)
+    announcePlayer = false,
+    announcePlayerName = "Realpower", -- Default name
+    officerRankIndex = 1 
 }
 
 local frame = CreateFrame("Frame")
@@ -27,9 +28,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
         local addonName = ...
         if addonName == "WHBLootTrackerClassic" then
             WHBLootData = WHBLootData or {}
-            WHBSettings = WHBSettings or { minQuality = 3, ignoredZones = {}, announceRealpower = false, officerRankIndex = 1 }
+            WHBSettings = WHBSettings or { minQuality = 3, ignoredZones = {}, announcePlayer = false, announcePlayerName = "Realpower", officerRankIndex = 1 }
             WHBSettings.ignoredZones = WHBSettings.ignoredZones or {}
-            if WHBSettings.announceRealpower == nil then WHBSettings.announceRealpower = false end
+            if WHBSettings.announcePlayer == nil then WHBSettings.announcePlayer = false end
+            if WHBSettings.announcePlayerName == nil then WHBSettings.announcePlayerName = "Realpower" end
             if WHBSettings.officerRankIndex == nil then WHBSettings.officerRankIndex = 1 end
             
             print("|cFF00FF00[WHB Loot Tracker]|r loaded! Type /whbloot to open.")
@@ -72,11 +74,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
             
             -- Handle the Sync Handshake Protocol
             if text == "SYNC_END" then
-                -- The Guild Master just finished a full sync, whisper an acknowledgement back
                 C_ChatInfo.SendAddonMessage("WHBLoot", "SYNC_ACK", "WHISPER", sender)
                 return
             elseif text == "SYNC_ACK" then
-                -- We received an acknowledgement from a guild member
                 if WHBSyncAcks then
                     local cleanName = sender:match("([^%-]+)") or sender
                     WHBSyncAcks[cleanName] = true
@@ -111,10 +111,17 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
         
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        if WHBSettings.announceRealpower and IsInGuild() then
+        if WHBSettings.announcePlayer and IsInGuild() and WHBSettings.announcePlayerName and WHBSettings.announcePlayerName ~= "" then
             local _, subevent, _, _, _, _, _, _, destName = CombatLogGetCurrentEventInfo()
-            if subevent == "UNIT_DIED" and destName and string.match(destName, "^Realpower") then
-                SendChatMessage("Realpower is dead again.", "GUILD")
+            
+            if subevent == "UNIT_DIED" and destName then
+                -- Strip server names just in case (e.g., "Player-Server")
+                local cleanDestName = string.match(destName, "([^%-]+)") or destName
+                
+                -- Case insensitive check
+                if string.lower(cleanDestName) == string.lower(WHBSettings.announcePlayerName) then
+                    SendChatMessage(WHBSettings.announcePlayerName .. " is dead again.", "GUILD")
+                end
             end
         end
     end
@@ -137,9 +144,9 @@ mainWindow:Hide()
 
 mainWindow:SetResizable(true)
 if mainWindow.SetResizeBounds then
-    mainWindow:SetResizeBounds(500, 480) 
+    mainWindow:SetResizeBounds(500, 500) -- Increased minimum height slightly to fit options
 else
-    mainWindow:SetMinResize(500, 480)
+    mainWindow:SetMinResize(500, 500)
 end
 
 local resizeGrip = CreateFrame("Button", nil, mainWindow)
@@ -251,25 +258,43 @@ for i, raid in ipairs(tbcRaids) do
     cb:SetScript("OnClick", function(self) WHBSettings.ignoredZones[raid.internal] = self:GetChecked() end)
 end
 
--- 3. Realpower Death Announcer
-local rpAnnounceCb = CreateFrame("CheckButton", nil, optionsFrame, "UICheckButtonTemplate")
-rpAnnounceCb:SetPoint("TOPLEFT", 30, -240) 
-rpAnnounceCb:SetSize(24, 24)
+-- 3. Dynamic Player Death Announcer
+local deathAnnounceCb = CreateFrame("CheckButton", nil, optionsFrame, "UICheckButtonTemplate")
+deathAnnounceCb:SetPoint("TOPLEFT", 30, -235) 
+deathAnnounceCb:SetSize(24, 24)
 
-rpAnnounceCb.text = rpAnnounceCb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-rpAnnounceCb.text:SetPoint("LEFT", rpAnnounceCb, "RIGHT", 5, 1)
-rpAnnounceCb.text:SetText("Announce Realpower's deaths to Guild |cFFFF0000(WARNING: Only ONE person check this!)|r")
+deathAnnounceCb.text = deathAnnounceCb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+deathAnnounceCb.text:SetPoint("LEFT", deathAnnounceCb, "RIGHT", 5, 1)
+deathAnnounceCb.text:SetText("Announce deaths for:")
 
-rpAnnounceCb:SetScript("OnShow", function(self) self:SetChecked(WHBSettings.announceRealpower) end)
-rpAnnounceCb:SetScript("OnClick", function(self) WHBSettings.announceRealpower = self:GetChecked() end)
+deathAnnounceCb:SetScript("OnShow", function(self) self:SetChecked(WHBSettings.announcePlayer) end)
+deathAnnounceCb:SetScript("OnClick", function(self) WHBSettings.announcePlayer = self:GetChecked() end)
+
+local deathAnnounceEditBox = CreateFrame("EditBox", nil, optionsFrame, "InputBoxTemplate")
+deathAnnounceEditBox:SetPoint("LEFT", deathAnnounceCb.text, "RIGHT", 10, 0)
+deathAnnounceEditBox:SetSize(120, 20)
+deathAnnounceEditBox:SetAutoFocus(false)
+
+deathAnnounceEditBox:SetScript("OnShow", function(self)
+    self:SetText(WHBSettings.announcePlayerName or "Realpower")
+end)
+
+deathAnnounceEditBox:SetScript("OnTextChanged", function(self)
+    WHBSettings.announcePlayerName = self:GetText()
+end)
+
+-- Warning Label below the checkbox
+local deathWarningLabel = optionsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+deathWarningLabel:SetPoint("TOPLEFT", 35, -260)
+deathWarningLabel:SetText("|cFFFF0000(WARNING: Only ONE person in the guild should check this!)|r")
 
 -- 4. Guild Rank Sync Permissions
 local rankLabel = optionsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-rankLabel:SetPoint("TOPLEFT", 16, -280)
+rankLabel:SetPoint("TOPLEFT", 16, -285)
 rankLabel:SetText("Minimum Rank Required to Push Full Sync:")
 
 local rankDropdown = CreateFrame("Frame", "WHBRankDropdown", optionsFrame, "UIDropDownMenuTemplate")
-rankDropdown:SetPoint("TOPLEFT", -5, -295)
+rankDropdown:SetPoint("TOPLEFT", -5, -300)
 
 local function RankDropdown_OnClick(self, arg1)
     WHBSettings.officerRankIndex = arg1
@@ -279,12 +304,12 @@ end
 
 local function InitializeRankDropdown(self, level)
     local numRanks = GuildControlGetNumRanks()
-    if numRanks == 0 then numRanks = 10 end -- Fallback if guild data is slow to load
+    if numRanks == 0 then numRanks = 10 end 
     
     for i = 1, numRanks do
         local info = UIDropDownMenu_CreateInfo()
         info.text = GuildControlGetRankName(i) or ("Rank " .. i)
-        info.arg1 = i - 1 -- WoW internal rank indexes start at 0 (0 = Guild Master)
+        info.arg1 = i - 1 
         info.value = i - 1
         info.func = RankDropdown_OnClick
         info.checked = (WHBSettings.officerRankIndex == (i - 1))
@@ -294,17 +319,15 @@ end
 
 -- 5. Guild Sync Push Button
 local syncBtn = CreateFrame("Button", nil, optionsFrame, "UIPanelButtonTemplate")
-syncBtn:SetPoint("TOP", 0, -340) 
+syncBtn:SetPoint("TOP", 0, -355) 
 syncBtn:SetSize(250, 30)
 syncBtn:SetText("Push Full DB Sync to Guild")
 
 local syncIndex = 1
 local function SendNextSync()
     if syncIndex > #WHBLootData then
-        -- Sync is finished sending, announce the end to trigger the ACKs
         C_ChatInfo.SendAddonMessage("WHBLoot", "SYNC_END", "GUILD")
         
-        -- Start a 3-second timer to listen for ACKs before printing the confirmation
         C_Timer.After(3.0, function()
             local count = 0
             local names = {}
@@ -321,7 +344,6 @@ local function SendNextSync()
                 print("|cFF00FF00[WHB Loot Tracker]|r Sync successfully received by " .. count .. " members.")
             end
             
-            -- Clean up and reset the button
             WHBSyncAcks = nil
             syncBtn:Enable()
             syncBtn:SetText("Push Full DB Sync to Guild")
@@ -343,14 +365,13 @@ syncBtn:SetScript("OnClick", function()
         return
     end
     
-    -- Permissions Check
     local _, _, playerRankIndex = GetGuildInfo("player")
     if playerRankIndex > WHBSettings.officerRankIndex then
         print("|cFFFF0000[WHB Loot Tracker]|r Access Denied. Pushing a full sync is restricted to Officers and the Guild Master.")
         return
     end
     
-    WHBSyncAcks = {} -- Initialize the table to collect incoming ACKs
+    WHBSyncAcks = {} 
     syncBtn:Disable()
     syncBtn:SetText("Syncing... Listening for ACKs...")
     syncIndex = 1
@@ -474,7 +495,6 @@ optionsToggleBtn:SetScript("OnClick", function()
         optionsToggleBtn:SetText("Back")
         exportBtn:SetText("Export CSV")
         
-        -- Load the Guild Rank dropdown data when they open the Options menu
         UIDropDownMenu_Initialize(rankDropdown, InitializeRankDropdown)
         local displayRank = GuildControlGetRankName((WHBSettings.officerRankIndex or 1) + 1) or "Select Rank"
         UIDropDownMenu_SetText(rankDropdown, displayRank)
