@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.1] - 2026-03-21
+
+### 🚀 Added
+- **Live Player Search:** Added a search bar to the main viewer. You can now type a player's name (or partial names like "Bank" or "Disenchant") to instantly filter the loot history in real-time.
+- **Search-Aware Export:** The CSV Exporter has been upgraded to respect the new player search box. Filtering the viewer down to a specific player will now only export that specific player's loot data.
+- **Quick Command Alias:** Added `/whb` as a fast, alternative slash command to open the loot viewer alongside the standard `/whbloot`.
+
+### 🔒 Security & Permissions
+- **Test Command Lockout:** The `/whbtest` command is now strictly locked. Only Officers with Sync Access can inject test data, preventing normal guild members from accidentally polluting their local databases with fake legendaries.
+
+---
+
 ## [1.5.0] - 2026-03-21
 
 ### 🚀 Added
