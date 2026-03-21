@@ -63,3 +63,7 @@
 * **Author:** Maliettv-Nightslayer US
 * **Guild:** Waffle House Brawlers
 * **Copyright:** © 2026 Maliettv-Nightslayer US - Waffle House Brawlers
+
+Made with ❤️ for Fartjars and Waffle House Brawlers Community.
+
+No Realpowers died during the development of this Addon. 
