@@ -29,6 +29,29 @@ local function GetSafeRank()
 end
 
 ----------------------------------------
+-- NEW: SYNC REQUEST POPUP
+----------------------------------------
+StaticPopupDialogs["WHB_SYNC_REQUEST"] = {
+    text = "|cFF00FF00[WHB Loot Tracker]|r\n%s is requesting missing data.\nPush your database to them directly?",
+    button1 = "Yes",
+    button2 = "No",
+    OnAccept = function(self)
+        local requester = self.data
+        if not requester then return end
+        
+        -- Trigger a targeted WHISPER sync
+        WHBSyncAcks = {}
+        if WHBPushSyncBtn then WHBPushSyncBtn:Disable(); WHBPushSyncBtn:SetText("Syncing...") end
+        WHBSyncIndex = 1
+        WHBSyncTarget = requester
+        WHBSendNextSync()
+    end,
+    timeout = 20,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+----------------------------------------
 -- EVENT HANDLER (Tracking, Syncing & Deaths)
 ----------------------------------------
 frame:SetScript("OnEvent", function(self, event, ...)
@@ -84,6 +107,15 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
 
+            -- Handle Data Requests
+            if text == "REQ_SYNC" then
+                local playerRank = GetSafeRank()
+                if WHBSettings.allowedRanks and WHBSettings.allowedRanks[playerRank] then
+                    StaticPopup_Show("WHB_SYNC_REQUEST", cleanSender, nil, sender)
+                end
+                return
+            end
+
             -- Handle Sync Confirmations
             if text == "SYNC_END" then
                 print("|cFF00FF00[WHB Loot Tracker]|r Sync from " .. cleanSender .. " complete!")
@@ -111,7 +143,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
             
-            -- NEW: Handle Remote Reassignments (Bank/Disenchant/Player Swap)
+            -- Handle Remote Reassignments 
             if text:match("^MOD~") then
                 local modTime, modOldPlayer, modItem, modNewPlayer = text:match("^MOD~([^~]+)~([^~]+)~([^~]+)~(.+)")
                 if modTime and modNewPlayer then
@@ -132,7 +164,11 @@ frame:SetScript("OnEvent", function(self, event, ...)
             if tTime and tItem then
                 if not WHBReceivingSyncFrom then
                     WHBReceivingSyncFrom = cleanSender
-                    print("|cFF00FF00[WHB Loot Tracker]|r Receiving full database sync from " .. cleanSender .. "...")
+                    if channel == "WHISPER" then
+                        print("|cFF00FF00[WHB Loot Tracker]|r Receiving targeted data sync from " .. cleanSender .. "...")
+                    else
+                        print("|cFF00FF00[WHB Loot Tracker]|r Receiving full database sync from " .. cleanSender .. "...")
+                    end
                 end
                 local isDuplicate = false
                 for _, entry in ipairs(WHBLootData) do
@@ -213,7 +249,6 @@ end)
 ----------------------------------------
 WHBContextIndex = nil
 
--- The text-entry popup frame for Reassigning to a new player
 local WHBReassignFrame = CreateFrame("Frame", "WHBReassignFrame", UIParent, "BasicFrameTemplateWithInset")
 WHBReassignFrame:SetSize(250, 110)
 WHBReassignFrame:SetPoint("CENTER")
@@ -243,7 +278,6 @@ reassignCancelBtn:SetPoint("BOTTOMRIGHT", -15, 10)
 reassignCancelBtn:SetSize(100, 25)
 reassignCancelBtn:SetText("Cancel")
 
--- The function that does the actual reassignment and broadcasts it
 local function PerformReassign(index, newName)
     if not index or not newName or newName == "" then return end
     local entry = WHBLootData[index]
@@ -265,7 +299,6 @@ reassignEditBox:SetScript("OnEnterPressed", function() PerformReassign(WHBContex
 reassignEditBox:SetScript("OnEscapePressed", function() WHBReassignFrame:Hide() end)
 reassignCancelBtn:SetScript("OnClick", function() WHBReassignFrame:Hide() end)
 
--- The Dropdown Menu
 local WHBContextMenu = CreateFrame("Frame", "WHBContextMenu", UIParent, "UIDropDownMenuTemplate")
 local function InitializeContextMenu(self, level)
     if not WHBContextIndex then return end
@@ -280,7 +313,6 @@ local function InitializeContextMenu(self, level)
     titleInfo.notCheckable = true
     UIDropDownMenu_AddButton(titleInfo, level)
 
-    -- Option 1: Assign to Player
     local reassignPlayerInfo = UIDropDownMenu_CreateInfo()
     reassignPlayerInfo.text = "Assign to Player..."
     reassignPlayerInfo.notCheckable = true
@@ -291,21 +323,18 @@ local function InitializeContextMenu(self, level)
     end
     UIDropDownMenu_AddButton(reassignPlayerInfo, level)
 
-    -- Option 2: Send to Bank
     local bankInfo = UIDropDownMenu_CreateInfo()
     bankInfo.text = "Send to Bank"
     bankInfo.notCheckable = true
     bankInfo.func = function() PerformReassign(WHBContextIndex, "Bank") end
     UIDropDownMenu_AddButton(bankInfo, level)
 
-    -- Option 3: Disenchant
     local deInfo = UIDropDownMenu_CreateInfo()
     deInfo.text = "Disenchant"
     deInfo.notCheckable = true
     deInfo.func = function() PerformReassign(WHBContextIndex, "Disenchant") end
     UIDropDownMenu_AddButton(deInfo, level)
 
-    -- Option 4: Remove Line Item
     local delInfo = UIDropDownMenu_CreateInfo()
     delInfo.text = "Remove Line Item"
     delInfo.notCheckable = true
@@ -426,8 +455,12 @@ local function BuildPermGrid()
     end
 end
 
-local syncBtn = CreateFrame("Button", nil, optionsFrame, "UIPanelButtonTemplate")
-syncBtn:SetPoint("BOTTOM", 0, 30); syncBtn:SetSize(250, 30); syncBtn:SetText("Push Full DB Sync to Guild")
+-- NEW: Push to Guild & Request Data Buttons Side-by-Side
+local syncBtn = CreateFrame("Button", "WHBPushSyncBtn", optionsFrame, "UIPanelButtonTemplate")
+syncBtn:SetPoint("BOTTOMLEFT", 15, 30); syncBtn:SetSize(140, 30); syncBtn:SetText("Push DB to Guild")
+
+local reqSyncBtn = CreateFrame("Button", nil, optionsFrame, "UIPanelButtonTemplate")
+reqSyncBtn:SetPoint("BOTTOMRIGHT", -15, 30); reqSyncBtn:SetSize(140, 30); reqSyncBtn:SetText("Request Data")
 
 syncBtn:SetScript("OnEnter", function(self)
     if not self:IsEnabled() then
@@ -442,34 +475,72 @@ syncBtn:SetScript("OnEnter", function(self)
 end)
 syncBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-local syncIndex = 1
-local function SendNextSync()
-    if syncIndex > #WHBLootData then
-        C_ChatInfo.SendAddonMessage("WHBLoot", "SYNC_END", "GUILD")
+reqSyncBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Ask online Officers to send you\nany loot data you might be missing.")
+    GameTooltip:Show()
+end)
+reqSyncBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+-- Global sync variables so the Popup can access them
+WHBSyncIndex = 1
+WHBSyncTarget = "GUILD"
+
+function WHBSendNextSync()
+    if WHBSyncIndex > #WHBLootData then
+        local endChannel = (WHBSyncTarget == "GUILD") and "GUILD" or "WHISPER"
+        local endTarget = (WHBSyncTarget == "GUILD") and nil or WHBSyncTarget
+        C_ChatInfo.SendAddonMessage("WHBLoot", "SYNC_END", endChannel, endTarget)
+        
         C_Timer.After(3.0, function()
             local count = 0; if WHBSyncAcks then for _ in pairs(WHBSyncAcks) do count = count + 1 end end
-            print("|cFF00FF00[WHB Loot Tracker]|r Sync received by " .. count .. " members.")
-            WHBSyncAcks = nil; syncBtn:Enable(); syncBtn:SetText("Push Full DB Sync to Guild")
+            if WHBSyncTarget == "GUILD" then
+                print("|cFF00FF00[WHB Loot Tracker]|r Sync received by " .. count .. " members.")
+            else
+                if count > 0 then
+                    print("|cFF00FF00[WHB Loot Tracker]|r Targeted sync to " .. WHBSyncTarget .. " completed successfully.")
+                else
+                    print("|cFFFF0000[WHB Loot Tracker]|r Targeted sync to " .. WHBSyncTarget .. " finished, but no response was received.")
+                end
+            end
+            WHBSyncAcks = nil; syncBtn:Enable(); syncBtn:SetText("Push DB to Guild")
         end)
         return
     end
-    local entry = WHBLootData[syncIndex]
+    
+    local entry = WHBLootData[WHBSyncIndex]
     local msg = entry.time .. "~" .. (entry.dateOnly or "") .. "~" .. (entry.player or "") .. "~" .. (entry.item or "") .. "~" .. (entry.zone or "Unknown")
-    C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
-    syncIndex = syncIndex + 1; C_Timer.After(0.05, SendNextSync) 
+    
+    if WHBSyncTarget == "GUILD" then
+        C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
+    else
+        C_ChatInfo.SendAddonMessage("WHBLoot", msg, "WHISPER", WHBSyncTarget)
+    end
+    
+    WHBSyncIndex = WHBSyncIndex + 1; C_Timer.After(0.05, WHBSendNextSync) 
 end
 
 syncBtn:SetScript("OnClick", function()
     if not IsInGuild() then return end
+    
+    -- Broadast permissions first
     local permStr = ""
     for rankIdx, allowed in pairs(WHBSettings.allowedRanks) do if allowed then permStr = permStr .. rankIdx .. "," end end
     C_ChatInfo.SendAddonMessage("WHBLoot", "PERM_SYNC:" .. permStr, "GUILD")
 
-    WHBSyncAcks = {}; syncBtn:Disable(); syncBtn:SetText("Syncing..."); syncIndex = 1; SendNextSync()
+    WHBSyncAcks = {}; syncBtn:Disable(); syncBtn:SetText("Syncing..."); WHBSyncIndex = 1; WHBSyncTarget = "GUILD"; WHBSendNextSync()
+end)
+
+reqSyncBtn:SetScript("OnClick", function()
+    if not IsInGuild() then return end
+    C_ChatInfo.SendAddonMessage("WHBLoot", "REQ_SYNC", "GUILD")
+    print("|cFF00FF00[WHB Loot Tracker]|r Data request sent to online Officers.")
+    reqSyncBtn:Disable()
+    C_Timer.After(10, function() reqSyncBtn:Enable() end) -- Cooldown to prevent spam
 end)
 
 local clearBtn = CreateFrame("Button", nil, optionsFrame, "UIPanelButtonTemplate")
-clearBtn:SetPoint("BOTTOMRIGHT", -10, 30) 
+clearBtn:SetPoint("BOTTOMRIGHT", -10, 65)  -- Raised slightly to fit Request Data
 clearBtn:SetSize(120, 25)
 clearBtn:SetText("Clear All Data")
 
@@ -608,6 +679,12 @@ optionsToggleBtn:SetScript("OnClick", function()
             syncBtn:Enable() 
         else 
             syncBtn:Disable() 
+        end
+        
+        if not IsInGuild() then
+            reqSyncBtn:Disable()
+        else
+            reqSyncBtn:Enable()
         end
         
         if playerRank == 0 then 
