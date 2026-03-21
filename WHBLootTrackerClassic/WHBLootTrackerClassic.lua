@@ -4,7 +4,7 @@ WHBSettings = WHBSettings or {
     minQuality = 3, 
     ignoredZones = {},
     announcePlayer = false,
-    announcePlayerName = "Realpower", -- Default name
+    announcePlayerName = "Realpower", 
     officerRankIndex = 1 
 }
 
@@ -17,8 +17,9 @@ frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 -- Register our secret Addon channel prefix for Guild Syncing
 C_ChatInfo.RegisterAddonMessagePrefix("WHBLoot")
 
--- Table to hold the sync acknowledgements
+-- Tables for sync management
 local WHBSyncAcks = nil
+local WHBReceivingSyncFrom = nil
 
 ----------------------------------------
 -- EVENT HANDLER (Tracking, Syncing & Deaths)
@@ -71,15 +72,19 @@ frame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, text, channel, sender = ...
         if prefix == "WHBLoot" and sender ~= UnitName("player") then
+            local cleanSender = sender:match("([^%-]+)") or sender
             
             -- Handle the Sync Handshake Protocol
             if text == "SYNC_END" then
+                -- Receiver: Confirm completion
+                print("|cFF00FF00[WHB Loot Tracker]|r Sync from " .. cleanSender .. " complete!")
+                WHBReceivingSyncFrom = nil
                 C_ChatInfo.SendAddonMessage("WHBLoot", "SYNC_ACK", "WHISPER", sender)
                 return
             elseif text == "SYNC_ACK" then
+                -- Sender: Record the acknowledgement
                 if WHBSyncAcks then
-                    local cleanName = sender:match("([^%-]+)") or sender
-                    WHBSyncAcks[cleanName] = true
+                    WHBSyncAcks[cleanSender] = true
                 end
                 return
             end
@@ -88,6 +93,12 @@ frame:SetScript("OnEvent", function(self, event, ...)
             local tTime, tDate, tPlayer, tItem = text:match("([^~]+)~([^~]+)~([^~]+)~(.+)")
             
             if tTime and tItem then
+                -- Receiver: Notify that a sync has started
+                if not WHBReceivingSyncFrom then
+                    WHBReceivingSyncFrom = cleanSender
+                    print("|cFF00FF00[WHB Loot Tracker]|r Receiving full database sync from " .. cleanSender .. "...")
+                end
+
                 local isDuplicate = false
                 for _, entry in ipairs(WHBLootData) do
                     if entry.time == tTime and entry.player == tPlayer and entry.item == tItem then
@@ -113,12 +124,8 @@ frame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         if WHBSettings.announcePlayer and IsInGuild() and WHBSettings.announcePlayerName and WHBSettings.announcePlayerName ~= "" then
             local _, subevent, _, _, _, _, _, _, destName = CombatLogGetCurrentEventInfo()
-            
             if subevent == "UNIT_DIED" and destName then
-                -- Strip server names just in case (e.g., "Player-Server")
                 local cleanDestName = string.match(destName, "([^%-]+)") or destName
-                
-                -- Case insensitive check
                 if string.lower(cleanDestName) == string.lower(WHBSettings.announcePlayerName) then
                     SendChatMessage(WHBSettings.announcePlayerName .. " is dead again.", "GUILD")
                 end
@@ -144,7 +151,7 @@ mainWindow:Hide()
 
 mainWindow:SetResizable(true)
 if mainWindow.SetResizeBounds then
-    mainWindow:SetResizeBounds(500, 500) -- Increased minimum height slightly to fit options
+    mainWindow:SetResizeBounds(500, 500) 
 else
     mainWindow:SetMinResize(500, 500)
 end
@@ -283,7 +290,6 @@ deathAnnounceEditBox:SetScript("OnTextChanged", function(self)
     WHBSettings.announcePlayerName = self:GetText()
 end)
 
--- Warning Label below the checkbox
 local deathWarningLabel = optionsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 deathWarningLabel:SetPoint("TOPLEFT", 35, -260)
 deathWarningLabel:SetText("|cFFFF0000(WARNING: Only ONE person in the guild should check this!)|r")
@@ -326,6 +332,7 @@ syncBtn:SetText("Push Full DB Sync to Guild")
 local syncIndex = 1
 local function SendNextSync()
     if syncIndex > #WHBLootData then
+        -- Finalizes the sync and pings receivers
         C_ChatInfo.SendAddonMessage("WHBLoot", "SYNC_END", "GUILD")
         
         C_Timer.After(3.0, function()
@@ -337,7 +344,7 @@ local function SendNextSync()
             end
             
             if count == 0 then
-                print("|cFFFF0000[WHB Loot Tracker]|r Sync pushed, but no other guild members with the addon responded.")
+                print("|cFFFF0000[WHB Loot Tracker]|r Sync pushed, but no other guild members responded.")
             elseif count <= 5 then
                 print("|cFF00FF00[WHB Loot Tracker]|r Sync successfully received by: " .. table.concat(names, ", "))
             else
@@ -367,7 +374,7 @@ syncBtn:SetScript("OnClick", function()
     
     local _, _, playerRankIndex = GetGuildInfo("player")
     if playerRankIndex > WHBSettings.officerRankIndex then
-        print("|cFFFF0000[WHB Loot Tracker]|r Access Denied. Pushing a full sync is restricted to Officers and the Guild Master.")
+        print("|cFFFF0000[WHB Loot Tracker]|r Access Denied. Only authorized ranks can push a full sync.")
         return
     end
     
