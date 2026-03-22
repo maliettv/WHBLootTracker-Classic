@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.2] - 2026-03-21
+
+### 🚀 Added
+
+- **Doomdrizzle** Added to the credits. 
+
+## [1.6.1] - 2026-03-21
+
+### 🐞 Fixed
+- **Discord Popup Fix:** Resolved a critical Lua error (`attempt to index field 'editBox'`) where the Discord link popup failed to initialize on certain client locales.
+- **Version Parity:** Updated all internal version strings to 1.6.1 to ensure the passive guild version checker functions correctly.
+
+---
+
 ## [1.6.0] - 2026-03-21
 
 ### 🚀 Added

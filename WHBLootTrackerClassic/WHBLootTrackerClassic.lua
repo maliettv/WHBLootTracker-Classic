@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.6.1"
+WHB_CURRENT_VERSION = "1.6.2"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -836,7 +836,7 @@ cTitle:SetText("Made with <3 for Waffle House Brawlers")
 local cBody = creditsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 cBody:SetPoint("TOP", cTitle, "BOTTOM", 0, -30)
 cBody:SetJustifyH("CENTER")
-cBody:SetText("Maliettv - Design and Coding\n\nBowphades - Concepts and Features\n\nFartjars - For putting up with Maliettv\n\nBigpingus - For being the guilds floor mat (RIP PINGUS)\n\nRealpower - For being the best Pally Tank Partner Maliettv could have.\n\nTreechopper - Being the voice of reason\n\n\n|cFF00FF00The whole WoW Community for using this addon!|r")
+cBody:SetText("Maliettv - Design and Coding\n\nBowphades - Concepts and Features\n\nFartjars - For putting up with Maliettv\n\nBigpingus - For being the guilds floor mat (RIP PINGUS)\n\nRealpower - For being the best Pally Tank Partner Maliettv could have.\n\nTreechopper - Being the voice of reason\n\nDoomdrizzle - For keeping a coolhead\n\n\n|cFF00FF00The whole WoW Community for using this addon!|r")
 
 local discordBtn = CreateFrame("Button", nil, creditsFrame, "UIPanelButtonTemplate")
 discordBtn:SetPoint("TOP", cBody, "BOTTOM", 0, -20)
