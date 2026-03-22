@@ -1,69 +1,45 @@
 # WHB Loot Tracker Classic
 ![Addon Icon](logo.png)
 
-**WHB Loot Tracker Classic** is a lightweight, high-performance World of Warcraft addon designed specifically for the **Waffle House Brawlers** guild. It automates raid loot recording, provides real-time database syncing between members, and offers a seamless export path to spreadsheets like Excel or Google Sheets.
+**Version:** 1.5.3  
+**Author:** Maliettv-Nightslayer US | Waffle House Brawlers  
+**Compatibility:** WoW Classic Era, Season of Discovery, TBC Anniversary, WotLK Classic, Cataclysm Classic
 
----
+## Overview
+Built originally for the **Waffle House Brawlers**, this addon is a lightweight, highly secure raid loot tracker that takes the headache out of managing guild spreadsheets. It quietly runs in the background during your raids, records who got what (and where), and allows you to instantly export the data to Excel or Google Sheets.
 
-## 🚀 Key Features
+Whether you are progressing through 25-man content or running multiple 10-man roster splits, the WHB Loot Tracker keeps your guild's loot history perfectly synced, strictly moderated, and easily manageable.
 
-### 📊 In-Game Loot Viewer
-* **Dynamic UI:** Access your loot history instantly with `/whbloot`.
-* **Interactive Tooltips:** Hover over item links within the viewer to see stats and item levels.
-* **Fully Resizable:** Drag the bottom-right corner to scale the window to your interface needs.
-* **Date Filtering:** A built-in dropdown menu allows you to filter by specific raid dates or view your entire history.
+## ✨ Key Features
 
-### 📥 One-Click CSV Export
-* **Spreadsheet Ready:** Instantly generate CSV-formatted text.
-* **Seamless Workflow:** Click **Export CSV**, press **Ctrl+C**, and paste directly into Excel or Google Sheets.
+### Core Tracking & UI
+* **In-Game Loot Viewer:** A fully resizable, clean interface that logs all loot drops. Hover over item links right in the viewer to see their stats.
+* **Advanced Filtering & Player Search:** Filter your history effortlessly using triple-dropdowns (**Zone -> Group -> Date**). Use the **Live Search Bar** to instantly filter the database by player name or keyword (e.g., type "Bank").
+* **10-Man Roster Support:** The addon automatically detects if you are in a 10-man raid (like Karazhan or Zul'Aman) and tags the loot to your active progression roster (Group 1 through 5) so it doesn't pollute your 25-man "Main Raid" database. 
+* **Smart CSV Export:** Click "Export CSV" to generate a pre-formatted block including Date, Player, Item, Zone, and Group. The export respects your active filters and search bar—filter down to a specific player and export *only* their data.
 
-### ⚙️ Advanced Options
-* **Raid Filtering:** Toggle tracking for specific TBC raids (Karazhan, Black Temple, Sunwell, etc.) via dedicated checkboxes.
-* **Quality Thresholds:** Set minimum item quality (Uncommon, Rare, or Epic) to keep your database clean.
-* **Custom Death Announcer:** A customizable feature that announces to guild chat when a specific player dies.
+### ⚔️ Master Looter & Officer Tools
+* **Auto-Trade Tracking:** Master Looters can vacuum up all boss drops to keep the raid moving and distribute the items later while clearing trash. The addon silently watches your trade window—when an Officer trades a tracked item to a raid member, the addon automatically reassigns ownership and broadcasts the fix to the guild. Zero clicks required!
+* **Right-Click Modifications:** Authorized officers can **Right-Click** the gold timestamp on any entry to manually Assign to a Player, send to Bank, mark as Disenchanted, or Delete the line completely.
+* **Targeted Data Recovery:** Did a guild member miss raid night or wipe their data? They can click the "Request Data" button to silently ask online Officers for an update. The addon will securely "Whisper-Sync" the missing database directly to them.
 
-### 🔄 Intelligent Guild Syncing
-* **Passive Sync:** New drops are automatically whispered to all guild members using the addon in real-time.
-* **Officer Push:** Authorized ranks can broadcast the entire loot history to the guild.
-* **Handshake Protocol:** The sender receives a confirmation list of which guild members successfully received the data.
-* **Receiver Confirmation:** Members are notified in chat when they start and finish receiving a sync.
+### 🔄 Intelligent Guild Syncing & Security
+* **Passive Sync:** Whenever a piece of loot drops or gets reassigned, the addon silently whispers that data to other guild members using the tracker, ensuring everyone stays up to date in real-time.
+* **Granular Permissions:** The Guild Master can open the Options tab to grant specific guild ranks permission to modify the database. 
+* **Bulletproof Verification:** The sync engine performs a background roster check on all incoming commands. It automatically rejects spoofed database changes sent by non-officers.
+* **Passive Version Checker:** Guild members running an outdated version of the addon will get a polite reminder in their chat box to update via CurseForge when they log in.
 
----
+### 💀 The Death Announcer (Easter Egg)
+Tucked away in the Options menu is a customizable Death Announcer. Type in the name of your guild's most notoriously clumsy player and check the box. The addon will automatically announce *"[PlayerName] is dead again."* to guild chat whenever they meet an untimely demise. 
 
-## 🛠 Commands
+## ⌨️ Slash Commands
 
-| Command | Action |
-| :--- | :--- |
-| `/whbloot` | Opens the main Viewer, Exporter, and Options interface. |
-| `/whbtest` | Injects a legendary test entry (May 24, 2004) to verify filters and syncing. |
+* `/whb` or `/whbloot` — Opens the main Loot Viewer.
+* `/whbtest` — *(Officer Only)* Injects a fake legendary test drop into your database. Allows you to test the viewer and CSV exporter without waiting for a raid.
 
----
+## 🛠️ Installation
 
-## 📂 Installation
-
-1.  Download the repository as a **.zip** file.
-2.  Extract the **WHBLootTrackerClassic** folder.
-3.  Place the folder into your WoW AddOns directory:
-    * **TBC Anniversary:** `_anniversary_\Interface\AddOns\`
-    * **Classic Era / SoD:** `_classic_era_\Interface\AddOns\`
-    * **Cataclysm Classic:** `_classic_\Interface\AddOns\`
-4.  Restart World of Warcraft or type `/reload` in-game.
-
----
-
-## 🔒 Permissions & Security
-
-* **Rank Restriction:** Full database syncing is restricted to the **Guild Master** or a user-defined **Officer Rank** to prevent server spam.
-* **Duplicate Protection:** The addon cross-references timestamps and item links to ensure no piece of loot is recorded twice.
-
----
-
-## 📜 Credits
-
-* **Author:** Maliettv-Nightslayer US
-* **Guild:** Waffle House Brawlers
-* **Copyright:** © 2026 Maliettv-Nightslayer US - Waffle House Brawlers
-
-Made with ❤️ for Fartjars and Waffle House Brawlers Community.
-
-No Realpowers died during the development of this Addon. 
+1. Download the latest release from [CurseForge](https://www.curseforge.com/wow/addons/whb-loot-tracker-classic) or the Releases tab on GitHub.
+2. Extract the `.zip` file.
+3. Place the `WHBLootTrackerClassic` folder into your World of Warcraft `_classic_/Interface/AddOns/` directory.
+4. Launch the game and ensure the addon is enabled on your character select screen.
