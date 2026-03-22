@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.6.3"
+WHB_CURRENT_VERSION = "1.6.4"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -65,7 +65,7 @@ local function IsSenderAuthorized(senderName)
     return false
 end
 
--- Helper to compare semantic versions (e.g. 1.6.2 vs 1.6.1)
+-- Helper to compare semantic versions 
 local function IsNewerVersion(remoteVer)
     local v1, v2, v3 = strsplit(".", WHB_CURRENT_VERSION)
     local r1, r2, r3 = strsplit(".", remoteVer)
@@ -223,13 +223,29 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
         
     ----------------------------------------
-    -- MASTER LOOTER CHECK (SECURED WITH DELAY)
+    -- MASTER LOOTER CHECK (API V2 FIXED)
     ----------------------------------------
     elseif event == "PARTY_LOOT_METHOD_CHANGED" then
         C_Timer.After(0.5, function() 
             if IsInRaid() then
-                local lootMethod = _G.GetLootMethod and _G.GetLootMethod() or "n/a"
-                if lootMethod == "master" then
+                local isMasterLoot = false
+                
+                -- Check the Modern API (Returns integers, 2 = Master Looter)
+                if C_PartyInfo and C_PartyInfo.GetLootMethod then
+                    local method = C_PartyInfo.GetLootMethod()
+                    if method == 2 then isMasterLoot = true end
+                -- Check the Legacy API (Returns strings)
+                elseif _G.GetLootMethod then
+                    local method = _G.GetLootMethod()
+                    if method == "master" then isMasterLoot = true end
+                end
+
+                if isMasterLoot then
+                    -- Notification to identify the change to the user
+                    if WHB_InstanceTrackingApproved == nil then
+                        print("|cFF00FF00[WHB Loot Tracker]|r Master Looter detected. Checking tracking status...")
+                    end
+
                     local zoneName = GetRealZoneText()
                     if not WHBSettings.ignoredZones[zoneName] then
                         CheckInstanceTrackingPrompt(zoneName)
