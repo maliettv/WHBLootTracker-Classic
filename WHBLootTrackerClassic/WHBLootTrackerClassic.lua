@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.5.2"
+WHB_CURRENT_VERSION = "1.5.3"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -17,6 +17,12 @@ frame:RegisterEvent("CHAT_MSG_LOOT")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
+-- NEW: Trade Events for Auto-Reassignment
+frame:RegisterEvent("TRADE_SHOW")
+frame:RegisterEvent("TRADE_CLOSED")
+frame:RegisterEvent("TRADE_PLAYER_ITEM_CHANGED")
+frame:RegisterEvent("UI_INFO_MESSAGE")
+
 -- Register our secret Addon channel prefix for Guild Syncing
 C_ChatInfo.RegisterAddonMessagePrefix("WHBLoot")
 
@@ -25,6 +31,10 @@ local WHBSyncAcks = nil
 local WHBReceivingSyncFrom = nil
 local hasNotifiedUpdate = false
 local hasBroadcastVersion = false
+
+-- Trade Tracking Variables
+local WHB_PendingTradeTarget = nil
+local WHB_PendingTradeItems = {}
 
 -- Safe helper function to get rank and avoid nil errors if not in a guild
 local function GetSafeRank()
@@ -101,7 +111,7 @@ StaticPopupDialogs["WHB_CLEAR_DATA"] = {
 }
 
 ----------------------------------------
--- EVENT HANDLER (Tracking, Syncing & Deaths)
+-- EVENT HANDLER (Tracking, Syncing & Trades)
 ----------------------------------------
 frame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
@@ -126,6 +136,67 @@ frame:SetScript("OnEvent", function(self, event, ...)
             hasBroadcastVersion = true
         end
 
+    ----------------------------------------
+    -- TRADE EVENT LOGIC
+    ----------------------------------------
+    elseif event == "TRADE_SHOW" then
+        WHB_PendingTradeTarget = UnitName("npc")
+        WHB_PendingTradeItems = {}
+
+    elseif event == "TRADE_PLAYER_ITEM_CHANGED" then
+        WHB_PendingTradeItems = {}
+        -- Scan the 6 trade slots
+        for i = 1, 6 do
+            local link = GetTradePlayerItemLink(i)
+            if link then table.insert(WHB_PendingTradeItems, link) end
+        end
+
+    elseif event == "UI_INFO_MESSAGE" then
+        local errorType, msg = ...
+        if msg == ERR_TRADE_COMPLETE then
+            if WHB_PendingTradeTarget and #WHB_PendingTradeItems > 0 then
+                local myName = UnitName("player") or "Unknown"
+                
+                -- Only trigger if the person trading the item is an Officer
+                if IsSenderAuthorized(myName) then
+                    for _, tradedLink in ipairs(WHB_PendingTradeItems) do
+                        local tName = GetItemInfo(tradedLink)
+                        if tName then
+                            -- Search the database backwards to find the most recent match assigned to us
+                            for i = #WHBLootData, 1, -1 do
+                                local entry = WHBLootData[i]
+                                local eName = GetItemInfo(entry.item)
+                                
+                                if entry.player == myName and eName == tName then
+                                    entry.player = WHB_PendingTradeTarget
+                                    if IsInGuild() then
+                                        local modMsg = "MOD~" .. entry.time .. "~" .. myName .. "~" .. entry.item .. "~" .. WHB_PendingTradeTarget
+                                        C_ChatInfo.SendAddonMessage("WHBLoot", modMsg, "GUILD")
+                                    end
+                                    print("|cFF00FF00[WHB Loot Tracker]|r Auto-reassigned " .. entry.item .. " to " .. WHB_PendingTradeTarget .. ".")
+                                    if WHBMainWindow and WHBMainWindow:IsShown() and UpdateViewer then UpdateViewer() end
+                                    break -- Move to next item in the trade window
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            -- Clean up the trade cache
+            WHB_PendingTradeTarget = nil
+            WHB_PendingTradeItems = {}
+        end
+
+    elseif event == "TRADE_CLOSED" then
+        -- Add a tiny delay to ensure UI_INFO_MESSAGE fires first before clearing
+        C_Timer.After(1.0, function()
+            WHB_PendingTradeTarget = nil
+            WHB_PendingTradeItems = {}
+        end)
+
+    ----------------------------------------
+    -- STANDARD LOOT & SYNC EVENTS
+    ----------------------------------------
     elseif event == "CHAT_MSG_LOOT" then
         if IsInRaid() then
             local zoneName = GetRealZoneText()

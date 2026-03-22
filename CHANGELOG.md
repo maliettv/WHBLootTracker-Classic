@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.3] - 2026-03-21
+
+### 🚀 Added
+- **Auto-Trade Tracking Engine:** Master Looters rejoice! You can now vacuum up all boss loot and distribute it later while clearing trash. The addon silently monitors trade windows; when an Officer trades an item they looted to a raid member, the addon automatically reassigns ownership and broadcasts the fix to the guild. Zero clicks required!
+- **Live Player Search:** Added a search bar to the main viewer. Type a player's name (or partial names like "Bank") to instantly filter the loot history in real-time.
+- **Search-Aware Export:** The CSV Exporter now respects the player search box. Filtering the viewer down to a specific player will export *only* that player's loot data.
+- **Quick Command Alias:** Added `/whb` as a fast, alternative slash command to open the loot viewer alongside `/whbloot`.
+
+### 🔒 Security & Quality of Life
+- **Strict Officer Verification:** The sync engine now performs a background roster check on all incoming `MOD`, `DEL`, and `PERM` commands. The database will automatically reject and ignore spoofed commands sent by non-officers, making your data bulletproof.
+- **Data Wipe Protection:** Added a confirmation popup to the "Clear All Data" button to completely eliminate the risk of accidental database wipes.
+- **Test Command Lockout:** The `/whbtest` command is now strictly locked. Only Officers with Sync Access can inject test data, preventing normal guild members from accidentally polluting their local databases with fake legendaries.
+
+---
+
 ## [1.5.1] - 2026-03-21
 
 ### 🚀 Added
