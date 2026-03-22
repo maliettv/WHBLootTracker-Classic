@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.5.1"
+WHB_CURRENT_VERSION = "1.5.2"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -33,6 +33,21 @@ local function GetSafeRank()
     return rank or 99
 end
 
+-- SECURITY HELPER: Check if a remote sender is actually an authorized officer
+local function IsSenderAuthorized(senderName)
+    if not IsInGuild() then return false end
+    for i = 1, GetNumGuildMembers() do
+        local name, _, rankIndex = GetGuildRosterInfo(i)
+        if name then
+            local cleanName = name:match("([^%-]+)") or name
+            if cleanName == senderName then
+                return WHBSettings.allowedRanks and WHBSettings.allowedRanks[rankIndex]
+            end
+        end
+    end
+    return false
+end
+
 -- Helper to compare semantic versions (e.g. 1.5.0 vs 1.4.0)
 local function IsNewerVersion(remoteVer)
     local v1, v2, v3 = strsplit(".", WHB_CURRENT_VERSION)
@@ -47,7 +62,7 @@ local function IsNewerVersion(remoteVer)
 end
 
 ----------------------------------------
--- SYNC REQUEST POPUP
+-- POPUP DIALOGS
 ----------------------------------------
 StaticPopupDialogs["WHB_SYNC_REQUEST"] = {
     text = "|cFF00FF00[WHB Loot Tracker]|r\n%s is requesting missing data.\nPush your database to them directly?",
@@ -63,6 +78,24 @@ StaticPopupDialogs["WHB_SYNC_REQUEST"] = {
         WHBSendNextSync()
     end,
     timeout = 20,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+StaticPopupDialogs["WHB_CLEAR_DATA"] = {
+    text = "|cFFFF0000WARNING:|r\nAre you sure you want to completely wipe the WHB Loot Tracker database? This cannot be undone.",
+    button1 = "Yes, Clear Data",
+    button2 = "Cancel",
+    OnAccept = function()
+        WHBLootData = {}
+        currentSelectedZone = "All Zones"
+        currentSelectedGroup = "All Groups"
+        currentSelectedDate = "All Dates"
+        if WHBSearchBox then WHBSearchBox:SetText("") end
+        if UpdateViewer then UpdateViewer() end
+        print("|cFF00FF00[WHB Loot Tracker]|r All data cleared.")
+    end,
+    timeout = 0,
     whileDead = true,
     hideOnEscape = true,
 }
@@ -137,7 +170,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
             
+            -- SECURED: Handle Permission Syncing
             if text:match("^PERM_SYNC:") then
+                if not IsSenderAuthorized(cleanSender) then return end
                 local permData = text:gsub("PERM_SYNC:", "")
                 WHBSettings.allowedRanks = {}
                 for rankIdx in permData:gmatch("([^,]+)") do
@@ -164,7 +199,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
 
+            -- SECURED: Handle Remote Deletions
             if text:match("^DEL~") then
+                if not IsSenderAuthorized(cleanSender) then return end
                 local delTime, delPlayer, delItem = strsplit("~", text:gsub("^DEL~", ""))
                 if delTime and delItem then
                     for i = #WHBLootData, 1, -1 do
@@ -179,7 +216,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
             
+            -- SECURED: Handle Remote Reassignments
             if text:match("^MOD~") then
+                if not IsSenderAuthorized(cleanSender) then return end
                 local modTime, modOldPlayer, modItem, modNewPlayer = strsplit("~", text:gsub("^MOD~", ""))
                 if modTime and modNewPlayer then
                     for i = #WHBLootData, 1, -1 do
@@ -271,7 +310,7 @@ groupDropdown:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 180, -30)
 local dateDropdown = CreateFrame("Frame", "WHBDateDropdown", mainWindow, "UIDropDownMenuTemplate")
 dateDropdown:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 360, -30)
 
--- NEW: Player Search Bar
+-- Player Search Bar
 local searchLabel = mainWindow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 searchLabel:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 20, -65)
 searchLabel:SetText("Search Player:")
@@ -285,7 +324,6 @@ searchBox:SetScript("OnTextChanged", function(self)
 end)
 searchBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
--- Pushed down slightly to fit the search bar
 local viewerScroll = CreateFrame("ScrollFrame", "WHBViewerScroll", mainWindow, "UIPanelScrollFrameTemplate")
 viewerScroll:SetPoint("TOPLEFT", 10, -95); viewerScroll:SetPoint("BOTTOMRIGHT", -30, 40)
 
@@ -617,10 +655,8 @@ clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 clearBtn:SetScript("OnClick", function()
     local playerRank = GetSafeRank()
     if playerRank ~= 0 then return end
-    WHBLootData = {}; currentSelectedZone = "All Zones"; currentSelectedGroup = "All Groups"; currentSelectedDate = "All Dates"
-    searchBox:SetText("")
-    if UpdateViewer then UpdateViewer() end
-    print("|cFF00FF00[WHB Loot Tracker]|r All data cleared.")
+    -- Trigger the confirmation popup instead of instantly deleting
+    StaticPopup_Show("WHB_CLEAR_DATA")
 end)
 
 ----------------------------------------
