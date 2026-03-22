@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-03-21
+
+### 🚀 Added
+- **Credits & Community Page:** Added a dedicated Credits panel within the addon to recognize the core team and contributors.
+- **Discord Integration:** Integrated a "Join our Discord" button on the Credits page that launches a popup for quick copying of the guild link: `https://discord.gg/whbguild`.
+- **Intelligent Roster Monitor:** The addon now automatically scans the raid roster for guild members. If it detects a PUG or mixed run (9 or fewer guild members in a 10m, or 18 or fewer in a 25m), it will proactively prompt to confirm if loot should be tracked.
+- **Proactive Tracking Prompt:** The confirmation logic now triggers the moment a raid leader swaps to **Master Looter** while inside a supported raid instance, allowing officers to set up before the first pull.
+
+---
+
 ## [1.5.3] - 2026-03-21
 
 ### 🚀 Added

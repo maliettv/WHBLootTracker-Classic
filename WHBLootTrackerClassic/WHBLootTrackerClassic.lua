@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.5.3"
+WHB_CURRENT_VERSION = "1.6.0"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -17,7 +17,10 @@ frame:RegisterEvent("CHAT_MSG_LOOT")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
--- NEW: Trade Events for Auto-Reassignment
+-- Raid Settings Events
+frame:RegisterEvent("PARTY_LOOT_METHOD_CHANGED")
+
+-- Trade Events for Auto-Reassignment
 frame:RegisterEvent("TRADE_SHOW")
 frame:RegisterEvent("TRADE_CLOSED")
 frame:RegisterEvent("TRADE_PLAYER_ITEM_CHANGED")
@@ -31,6 +34,10 @@ local WHBSyncAcks = nil
 local WHBReceivingSyncFrom = nil
 local hasNotifiedUpdate = false
 local hasBroadcastVersion = false
+
+-- PUG Detection Variables
+local WHB_InstanceTrackingApproved = nil
+local WHB_PendingLootToTrack = {}
 
 -- Trade Tracking Variables
 local WHB_PendingTradeTarget = nil
@@ -58,7 +65,7 @@ local function IsSenderAuthorized(senderName)
     return false
 end
 
--- Helper to compare semantic versions (e.g. 1.5.0 vs 1.4.0)
+-- Helper to compare semantic versions 
 local function IsNewerVersion(remoteVer)
     local v1, v2, v3 = strsplit(".", WHB_CURRENT_VERSION)
     local r1, r2, r3 = strsplit(".", remoteVer)
@@ -69,6 +76,29 @@ local function IsNewerVersion(remoteVer)
     if r1 == v1 and r2 > v2 then return true end
     if r1 == v1 and r2 == v2 and r3 > v3 then return true end
     return false
+end
+
+-- Roster Scan Helper
+local function CheckInstanceTrackingPrompt(zoneName)
+    if WHB_InstanceTrackingApproved ~= nil then return end
+
+    local _, _, _, _, maxPlayers = GetInstanceInfo()
+    if not maxPlayers or maxPlayers == 0 then
+        if zoneName == "Karazhan" or zoneName == "Zul'Aman" then maxPlayers = 10 else maxPlayers = 25 end
+    end
+
+    local guildCount = 0
+    for i = 1, GetNumGroupMembers() do
+        if UnitIsInMyGuild("raid"..i) then guildCount = guildCount + 1 end
+    end
+
+    -- Trigger Thresholds
+    if (maxPlayers <= 10 and guildCount <= 9) or (maxPlayers > 10 and guildCount <= 18) then
+        WHB_InstanceTrackingApproved = "PENDING"
+        StaticPopup_Show("WHB_CONFIRM_TRACKING", tostring(maxPlayers), tostring(guildCount))
+    else
+        WHB_InstanceTrackingApproved = true
+    end
 end
 
 ----------------------------------------
@@ -110,6 +140,50 @@ StaticPopupDialogs["WHB_CLEAR_DATA"] = {
     hideOnEscape = true,
 }
 
+StaticPopupDialogs["WHB_CONFIRM_TRACKING"] = {
+    text = "|cFF00FF00[WHB Loot Tracker]|r\nYou are in a %s-man raid with only %s guild members.\nDo you want to track loot for this run?",
+    button1 = "Yes, Track It",
+    button2 = "No, Ignore",
+    OnAccept = function()
+        WHB_InstanceTrackingApproved = true
+        for _, entry in ipairs(WHB_PendingLootToTrack) do
+            table.insert(WHBLootData, entry)
+            if IsInGuild() then
+                local msg = entry.time .. "~" .. entry.dateOnly .. "~" .. entry.player .. "~" .. entry.item .. "~" .. entry.zone .. "~" .. entry.group
+                C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
+            end
+        end
+        WHB_PendingLootToTrack = {}
+        if WHBMainWindow and WHBMainWindow:IsShown() and UpdateViewer then UpdateViewer() end
+        print("|cFF00FF00[WHB Loot Tracker]|r Loot tracking ENABLED for this raid session.")
+    end,
+    OnCancel = function()
+        WHB_InstanceTrackingApproved = false
+        WHB_PendingLootToTrack = {}
+        print("|cFFFF0000[WHB Loot Tracker]|r Loot tracking DISABLED for this raid session.")
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+StaticPopupDialogs["WHB_DISCORD_POPUP"] = {
+    text = "Join the Waffle House Brawlers Discord!\nPress Ctrl+C to copy the link below.",
+    button1 = "Close",
+    hasEditBox = true,
+    OnShow = function(self)
+        self.editBox:SetText("https://discord.gg/whbguild")
+        self.editBox:HighlightText()
+        self.editBox:SetFocus()
+    end,
+    EditBoxOnEscapePressed = function(self)
+        self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
 ----------------------------------------
 -- EVENT HANDLER (Tracking, Syncing & Trades)
 ----------------------------------------
@@ -129,11 +203,29 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
 
     elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Reset tracking approval state every time you zone
+        WHB_InstanceTrackingApproved = nil
+        WHB_PendingLootToTrack = {}
+
         if IsInGuild() and not hasBroadcastVersion then
             C_Timer.After(5, function() 
                 C_ChatInfo.SendAddonMessage("WHBLoot", "VER_CHECK~" .. WHB_CURRENT_VERSION, "GUILD") 
             end)
             hasBroadcastVersion = true
+        end
+        
+    ----------------------------------------
+    -- MASTER LOOTER CHECK
+    ----------------------------------------
+    elseif event == "PARTY_LOOT_METHOD_CHANGED" then
+        if IsInRaid() then
+            local lootMethod = GetLootMethod()
+            if lootMethod == "master" then
+                local zoneName = GetRealZoneText()
+                if not WHBSettings.ignoredZones[zoneName] then
+                    CheckInstanceTrackingPrompt(zoneName)
+                end
+            end
         end
 
     ----------------------------------------
@@ -145,7 +237,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
 
     elseif event == "TRADE_PLAYER_ITEM_CHANGED" then
         WHB_PendingTradeItems = {}
-        -- Scan the 6 trade slots
         for i = 1, 6 do
             local link = GetTradePlayerItemLink(i)
             if link then table.insert(WHB_PendingTradeItems, link) end
@@ -157,12 +248,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
             if WHB_PendingTradeTarget and #WHB_PendingTradeItems > 0 then
                 local myName = UnitName("player") or "Unknown"
                 
-                -- Only trigger if the person trading the item is an Officer
                 if IsSenderAuthorized(myName) then
                     for _, tradedLink in ipairs(WHB_PendingTradeItems) do
                         local tName = GetItemInfo(tradedLink)
                         if tName then
-                            -- Search the database backwards to find the most recent match assigned to us
                             for i = #WHBLootData, 1, -1 do
                                 local entry = WHBLootData[i]
                                 local eName = GetItemInfo(entry.item)
@@ -175,20 +264,18 @@ frame:SetScript("OnEvent", function(self, event, ...)
                                     end
                                     print("|cFF00FF00[WHB Loot Tracker]|r Auto-reassigned " .. entry.item .. " to " .. WHB_PendingTradeTarget .. ".")
                                     if WHBMainWindow and WHBMainWindow:IsShown() and UpdateViewer then UpdateViewer() end
-                                    break -- Move to next item in the trade window
+                                    break 
                                 end
                             end
                         end
                     end
                 end
             end
-            -- Clean up the trade cache
             WHB_PendingTradeTarget = nil
             WHB_PendingTradeItems = {}
         end
 
     elseif event == "TRADE_CLOSED" then
-        -- Add a tiny delay to ensure UI_INFO_MESSAGE fires first before clearing
         C_Timer.After(1.0, function()
             WHB_PendingTradeTarget = nil
             WHB_PendingTradeItems = {}
@@ -209,6 +296,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
             if itemLink then
                 local itemName, _, itemQuality = GetItemInfo(itemLink)
                 if not itemQuality or itemQuality >= WHBSettings.minQuality then
+                    
+                    -- Explicitly ignored by user click
+                    if WHB_InstanceTrackingApproved == false then return end 
+                    
                     local timestamp = date("%Y-%m-%d %H:%M:%S")
                     local dateOnlyStr = date("%Y-%m-%d")
                     
@@ -217,10 +308,31 @@ frame:SetScript("OnEvent", function(self, event, ...)
                         rGroup = WHBSettings.activeGroup
                     end
 
-                    table.insert(WHBLootData, { time = timestamp, dateOnly = dateOnlyStr, player = playerName, item = itemLink, zone = zoneName, group = rGroup })
-                    if IsInGuild() then
-                        local msg = timestamp .. "~" .. dateOnlyStr .. "~" .. playerName .. "~" .. itemLink .. "~" .. zoneName .. "~" .. rGroup
-                        C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
+                    local lootEntry = { time = timestamp, dateOnly = dateOnlyStr, player = playerName, item = itemLink, zone = zoneName, group = rGroup }
+
+                    -- If this is the FIRST tracked drop AND we haven't prompted yet
+                    if WHB_InstanceTrackingApproved == nil then
+                        CheckInstanceTrackingPrompt(zoneName)
+                        
+                        if WHB_InstanceTrackingApproved == "PENDING" then
+                            table.insert(WHB_PendingLootToTrack, lootEntry)
+                            return
+                        end
+                        
+                    -- If items drop while the popup is still visible on screen
+                    elseif WHB_InstanceTrackingApproved == "PENDING" then
+                        table.insert(WHB_PendingLootToTrack, lootEntry)
+                        return
+                    end
+
+                    -- Standard Logging
+                    if WHB_InstanceTrackingApproved == true then
+                        table.insert(WHBLootData, lootEntry)
+                        if IsInGuild() then
+                            local msg = timestamp .. "~" .. dateOnlyStr .. "~" .. playerName .. "~" .. itemLink .. "~" .. zoneName .. "~" .. rGroup
+                            C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
+                        end
+                        if WHBMainWindow and WHBMainWindow:IsShown() and UpdateViewer then UpdateViewer() end
                     end
                 end
             end
@@ -231,7 +343,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
         if prefix == "WHBLoot" and sender ~= UnitName("player") then
             local cleanSender = sender:match("([^%-]+)") or sender
             
-            -- Handle Version Checking
             if text:match("^VER_CHECK~") then
                 local remoteVer = text:match("^VER_CHECK~(.+)")
                 if remoteVer and not hasNotifiedUpdate and IsNewerVersion(remoteVer) then
@@ -241,7 +352,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
             
-            -- SECURED: Handle Permission Syncing
             if text:match("^PERM_SYNC:") then
                 if not IsSenderAuthorized(cleanSender) then return end
                 local permData = text:gsub("PERM_SYNC:", "")
@@ -270,7 +380,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
 
-            -- SECURED: Handle Remote Deletions
             if text:match("^DEL~") then
                 if not IsSenderAuthorized(cleanSender) then return end
                 local delTime, delPlayer, delItem = strsplit("~", text:gsub("^DEL~", ""))
@@ -287,7 +396,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
             
-            -- SECURED: Handle Remote Reassignments
             if text:match("^MOD~") then
                 if not IsSenderAuthorized(cleanSender) then return end
                 local modTime, modOldPlayer, modItem, modNewPlayer = strsplit("~", text:gsub("^MOD~", ""))
@@ -381,7 +489,6 @@ groupDropdown:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 180, -30)
 local dateDropdown = CreateFrame("Frame", "WHBDateDropdown", mainWindow, "UIDropDownMenuTemplate")
 dateDropdown:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 360, -30)
 
--- Player Search Bar
 local searchLabel = mainWindow:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 searchLabel:SetPoint("TOPLEFT", mainWindow, "TOPLEFT", 20, -65)
 searchLabel:SetText("Search Player:")
@@ -726,9 +833,35 @@ clearBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 clearBtn:SetScript("OnClick", function()
     local playerRank = GetSafeRank()
     if playerRank ~= 0 then return end
-    -- Trigger the confirmation popup instead of instantly deleting
     StaticPopup_Show("WHB_CLEAR_DATA")
 end)
+
+----------------------------------------
+-- CREDITS PANEL 
+----------------------------------------
+local creditsFrame = CreateFrame("Frame", nil, mainWindow)
+creditsFrame:SetPoint("TOPLEFT", 10, -30); creditsFrame:SetPoint("BOTTOMRIGHT", -10, 40); creditsFrame:Hide()
+
+local cTitle = creditsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+cTitle:SetPoint("TOP", 0, -30)
+cTitle:SetText("Made with <3 for Waffle House Brawlers")
+
+local cBody = creditsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+cBody:SetPoint("TOP", cTitle, "BOTTOM", 0, -30)
+cBody:SetJustifyH("CENTER")
+cBody:SetText("Maliettv - Design and Coding\n\nBowphades - Concepts and Features\n\nFartjars - For putting up with Maliettv\n\nBigpingus - For being the guilds floor mat (RIP PINGUS)\n\nRealpower - For being the best Pally Tank Partner Maliettv could have.\n\nTreechopper - Being the voice of reason\n\n\n|cFF00FF00The whole WoW Community for using this addon!|r")
+
+local discordBtn = CreateFrame("Button", nil, creditsFrame, "UIPanelButtonTemplate")
+discordBtn:SetPoint("TOP", cBody, "BOTTOM", 0, -20)
+discordBtn:SetSize(180, 30)
+discordBtn:SetText("Join our Discord")
+discordBtn:SetScript("OnClick", function()
+    StaticPopup_Show("WHB_DISCORD_POPUP")
+end)
+
+local vLabel = creditsFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+vLabel:SetPoint("BOTTOM", 0, 10)
+vLabel:SetText("Version " .. WHB_CURRENT_VERSION)
 
 ----------------------------------------
 -- VIEWER LOGIC & DROPDOWNS
@@ -764,7 +897,6 @@ function UpdateViewer()
     if not hasData then messageFrame:AddMessage("No loot recorded for this selection.") end
 end
 
--- ZONE
 local function ZoneDropdown_OnClick(self, arg1)
     currentSelectedZone = arg1; UIDropDownMenu_SetSelectedValue(zoneDropdown, currentSelectedZone); UIDropDownMenu_SetText(zoneDropdown, currentSelectedZone)
     currentSelectedGroup = "All Groups"; UIDropDownMenu_SetText(groupDropdown, currentSelectedGroup)
@@ -782,7 +914,6 @@ function InitializeZoneDropdown(self, level)
     table.sort(zones); for _, z in ipairs(zones) do info.text = z; info.arg1 = z; info.checked = currentSelectedZone == z; UIDropDownMenu_AddButton(info) end
 end
 
--- GROUP
 local function GroupDropdown_OnClick(self, arg1)
     currentSelectedGroup = arg1; UIDropDownMenu_SetSelectedValue(groupDropdown, currentSelectedGroup); UIDropDownMenu_SetText(groupDropdown, currentSelectedGroup)
     currentSelectedDate = "All Dates"; UIDropDownMenu_SetText(dateDropdown, currentSelectedDate)
@@ -802,7 +933,6 @@ function InitializeGroupDropdown(self, level)
     table.sort(groups); for _, g in ipairs(groups) do info.text = g; info.arg1 = g; info.checked = currentSelectedGroup == g; UIDropDownMenu_AddButton(info) end
 end
 
--- DATE
 local function DateDropdown_OnClick(self, arg1)
     currentSelectedDate = arg1; UIDropDownMenu_SetSelectedValue(dateDropdown, currentSelectedDate); UIDropDownMenu_SetText(dateDropdown, currentSelectedDate)
     UpdateViewer()
@@ -823,26 +953,40 @@ function InitializeDateDropdown(self, level)
     for _, d in ipairs(dates) do info.text = d; info.arg1 = d; info.checked = currentSelectedDate == d; UIDropDownMenu_AddButton(info) end
 end
 
+----------------------------------------
+-- BOTTOM BUTTON NAVIGATION LOGIC
+----------------------------------------
 local exportBtn = CreateFrame("Button", nil, mainWindow, "UIPanelButtonTemplate")
-exportBtn:SetPoint("BOTTOMLEFT", 10, 10); exportBtn:SetSize(100, 25); exportBtn:SetText("Export CSV")
+exportBtn:SetPoint("BOTTOMLEFT", 10, 10); exportBtn:SetSize(100, 25)
 
 local optionsToggleBtn = CreateFrame("Button", nil, mainWindow, "UIPanelButtonTemplate")
-optionsToggleBtn:SetPoint("LEFT", exportBtn, "RIGHT", 10, 0); optionsToggleBtn:SetSize(100, 25); optionsToggleBtn:SetText("Options")
+optionsToggleBtn:SetPoint("LEFT", exportBtn, "RIGHT", 10, 0); optionsToggleBtn:SetSize(100, 25)
 
-local isExportMode = false; local isOptionsMode = false
+local creditsBtn = CreateFrame("Button", nil, mainWindow, "UIPanelButtonTemplate")
+creditsBtn:SetPoint("LEFT", optionsToggleBtn, "RIGHT", 10, 0); creditsBtn:SetSize(100, 25)
+
+local isExportMode = false; local isOptionsMode = false; local isCreditsMode = false
+
 local function ResetViews() 
-    viewerScroll:Hide(); exportEditBox:Hide(); optionsFrame:Hide(); 
-    zoneDropdown:Hide(); groupDropdown:Hide(); dateDropdown:Hide();
+    viewerScroll:Hide(); exportEditBox:Hide(); optionsFrame:Hide(); creditsFrame:Hide()
+    zoneDropdown:Hide(); groupDropdown:Hide(); dateDropdown:Hide()
     searchLabel:Hide(); searchBox:Hide()
+    
+    exportBtn:SetText("Export CSV")
+    optionsToggleBtn:SetText("Options")
+    creditsBtn:SetText("Credits")
 end
 
 exportBtn:SetScript("OnClick", function()
-    isExportMode = not isExportMode; isOptionsMode = false; ResetViews()
-    if isExportMode then
+    local wasExport = isExportMode
+    isExportMode, isOptionsMode, isCreditsMode = false, false, false
+    ResetViews()
+    
+    if not wasExport then
+        isExportMode = true
         mainWindow.title:SetText("WHB Loot Tracker - Export")
         exportBtn:SetText("Back")
         
-        -- Keep search and dropdowns visible so you know what you are exporting
         zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show()
         
         local csvData = "Date,Player,Item,Zone,Group\n"
@@ -864,27 +1008,52 @@ exportBtn:SetScript("OnClick", function()
         end
         exportEditBox:SetText(csvData); viewerScroll:Show(); exportEditBox:Show(); viewerScroll:SetScrollChild(exportEditBox); exportEditBox:HighlightText()
     else
-        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION); exportBtn:SetText("Export CSV")
+        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
         zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
     end
 end)
 
 optionsToggleBtn:SetScript("OnClick", function()
-    isOptionsMode = not isOptionsMode; isExportMode = false; ResetViews()
-    if isOptionsMode then
-        mainWindow.title:SetText("WHB Loot Tracker - Options"); optionsToggleBtn:SetText("Back"); optionsFrame:Show()
-        BuildPermGrid()
-        ApplyOfficerLockdowns()
+    local wasOptions = isOptionsMode
+    isExportMode, isOptionsMode, isCreditsMode = false, false, false
+    ResetViews()
+    
+    if not wasOptions then
+        isOptionsMode = true
+        mainWindow.title:SetText("WHB Loot Tracker - Options")
+        optionsToggleBtn:SetText("Back")
+        optionsFrame:Show()
         
+        BuildPermGrid(); ApplyOfficerLockdowns()
         local playerRank = GetSafeRank()
         if WHBSettings.allowedRanks[playerRank] then syncBtn:Enable() else syncBtn:Disable() end
         if not IsInGuild() then reqSyncBtn:Disable() else reqSyncBtn:Enable() end
         if playerRank == 0 then clearBtn:Enable() else clearBtn:Disable() end
     else
-        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION); optionsToggleBtn:SetText("Options")
+        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
         zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
     end
 end)
+
+creditsBtn:SetScript("OnClick", function()
+    local wasCredits = isCreditsMode
+    isExportMode, isOptionsMode, isCreditsMode = false, false, false
+    ResetViews()
+    
+    if not wasCredits then
+        isCreditsMode = true
+        mainWindow.title:SetText("WHB Loot Tracker - Credits")
+        creditsBtn:SetText("Back")
+        creditsFrame:Show()
+    else
+        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
+        zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
+    end
+end)
+
+ResetViews()
+mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
+zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
 
 ----------------------------------------
 -- SLASH COMMANDS
