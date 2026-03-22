@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.6.0"
+WHB_CURRENT_VERSION = "1.6.1"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -172,9 +172,12 @@ StaticPopupDialogs["WHB_DISCORD_POPUP"] = {
     button1 = "Close",
     hasEditBox = true,
     OnShow = function(self)
-        self.editBox:SetText("https://discord.gg/whbguild")
-        self.editBox:HighlightText()
-        self.editBox:SetFocus()
+        -- FIXED: WoW uses self.EditBox with a capital E
+        if self.EditBox then
+            self.EditBox:SetText("https://discord.gg/whbguild")
+            self.EditBox:HighlightText()
+            self.EditBox:SetFocus()
+        end
     end,
     EditBoxOnEscapePressed = function(self)
         self:GetParent():Hide()
@@ -203,7 +206,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
 
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Reset tracking approval state every time you zone
         WHB_InstanceTrackingApproved = nil
         WHB_PendingLootToTrack = {}
 
@@ -214,9 +216,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
             hasBroadcastVersion = true
         end
         
-    ----------------------------------------
-    -- MASTER LOOTER CHECK
-    ----------------------------------------
     elseif event == "PARTY_LOOT_METHOD_CHANGED" then
         if IsInRaid() then
             local lootMethod = GetLootMethod()
@@ -228,9 +227,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
             end
         end
 
-    ----------------------------------------
-    -- TRADE EVENT LOGIC
-    ----------------------------------------
     elseif event == "TRADE_SHOW" then
         WHB_PendingTradeTarget = UnitName("npc")
         WHB_PendingTradeItems = {}
@@ -281,9 +277,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
             WHB_PendingTradeItems = {}
         end)
 
-    ----------------------------------------
-    -- STANDARD LOOT & SYNC EVENTS
-    ----------------------------------------
     elseif event == "CHAT_MSG_LOOT" then
         if IsInRaid() then
             local zoneName = GetRealZoneText()
@@ -297,7 +290,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 local itemName, _, itemQuality = GetItemInfo(itemLink)
                 if not itemQuality or itemQuality >= WHBSettings.minQuality then
                     
-                    -- Explicitly ignored by user click
                     if WHB_InstanceTrackingApproved == false then return end 
                     
                     local timestamp = date("%Y-%m-%d %H:%M:%S")
@@ -310,22 +302,17 @@ frame:SetScript("OnEvent", function(self, event, ...)
 
                     local lootEntry = { time = timestamp, dateOnly = dateOnlyStr, player = playerName, item = itemLink, zone = zoneName, group = rGroup }
 
-                    -- If this is the FIRST tracked drop AND we haven't prompted yet
                     if WHB_InstanceTrackingApproved == nil then
                         CheckInstanceTrackingPrompt(zoneName)
-                        
                         if WHB_InstanceTrackingApproved == "PENDING" then
                             table.insert(WHB_PendingLootToTrack, lootEntry)
                             return
                         end
-                        
-                    -- If items drop while the popup is still visible on screen
                     elseif WHB_InstanceTrackingApproved == "PENDING" then
                         table.insert(WHB_PendingLootToTrack, lootEntry)
                         return
                     end
 
-                    -- Standard Logging
                     if WHB_InstanceTrackingApproved == true then
                         table.insert(WHBLootData, lootEntry)
                         if IsInGuild() then
@@ -853,8 +840,8 @@ cBody:SetText("Maliettv - Design and Coding\n\nBowphades - Concepts and Features
 
 local discordBtn = CreateFrame("Button", nil, creditsFrame, "UIPanelButtonTemplate")
 discordBtn:SetPoint("TOP", cBody, "BOTTOM", 0, -20)
-discordBtn:SetSize(180, 30)
-discordBtn:SetText("Join our Discord")
+discordBtn:SetSize(240, 30)
+discordBtn:SetText("Visit the Waffle House")
 discordBtn:SetScript("OnClick", function()
     StaticPopup_Show("WHB_DISCORD_POPUP")
 end)
