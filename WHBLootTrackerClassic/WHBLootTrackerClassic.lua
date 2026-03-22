@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.6.4"
+WHB_CURRENT_VERSION = "1.7.0 Eggsbenny"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -43,7 +43,7 @@ local WHB_PendingLootToTrack = {}
 local WHB_PendingTradeTarget = nil
 local WHB_PendingTradeItems = {}
 
--- Safe helper function to get rank and avoid nil errors if not in a guild
+-- Safe helper function to get rank
 local function GetSafeRank()
     if not IsInGuild() then return 99 end
     local _, _, rank = GetGuildInfo("player")
@@ -156,7 +156,8 @@ StaticPopupDialogs["WHB_CONFIRM_TRACKING"] = {
         for _, entry in ipairs(WHB_PendingLootToTrack) do
             table.insert(WHBLootData, entry)
             if IsInGuild() then
-                local msg = entry.time .. "~" .. entry.dateOnly .. "~" .. entry.player .. "~" .. entry.item .. "~" .. entry.zone .. "~" .. entry.group
+                local addedByStr = entry.addedBy or ""
+                local msg = entry.time .. "~" .. entry.dateOnly .. "~" .. entry.player .. "~" .. entry.item .. "~" .. entry.zone .. "~" .. entry.group .. "~" .. addedByStr
                 C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
             end
         end
@@ -222,30 +223,17 @@ frame:SetScript("OnEvent", function(self, event, ...)
             hasBroadcastVersion = true
         end
         
-    ----------------------------------------
-    -- MASTER LOOTER CHECK (API V2 FIXED)
-    ----------------------------------------
     elseif event == "PARTY_LOOT_METHOD_CHANGED" then
         C_Timer.After(0.5, function() 
             if IsInRaid() then
                 local isMasterLoot = false
-                
-                -- Check the Modern API (Returns integers, 2 = Master Looter)
                 if C_PartyInfo and C_PartyInfo.GetLootMethod then
-                    local method = C_PartyInfo.GetLootMethod()
-                    if method == 2 then isMasterLoot = true end
-                -- Check the Legacy API (Returns strings)
+                    if C_PartyInfo.GetLootMethod() == 2 then isMasterLoot = true end
                 elseif _G.GetLootMethod then
-                    local method = _G.GetLootMethod()
-                    if method == "master" then isMasterLoot = true end
+                    if _G.GetLootMethod() == "master" then isMasterLoot = true end
                 end
 
                 if isMasterLoot then
-                    -- Notification to identify the change to the user
-                    if WHB_InstanceTrackingApproved == nil then
-                        print("|cFF00FF00[WHB Loot Tracker]|r Master Looter detected. Checking tracking status...")
-                    end
-
                     local zoneName = GetRealZoneText()
                     if not WHBSettings.ignoredZones[zoneName] then
                         CheckInstanceTrackingPrompt(zoneName)
@@ -254,9 +242,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
             end
         end)
 
-    ----------------------------------------
-    -- TRADE EVENT LOGIC
-    ----------------------------------------
     elseif event == "TRADE_SHOW" then
         WHB_PendingTradeTarget = UnitName("npc")
         WHB_PendingTradeItems = {}
@@ -273,7 +258,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
         if msg == ERR_TRADE_COMPLETE then
             if WHB_PendingTradeTarget and #WHB_PendingTradeItems > 0 then
                 local myName = UnitName("player") or "Unknown"
-                
                 if IsSenderAuthorized(myName) then
                     for _, tradedLink in ipairs(WHB_PendingTradeItems) do
                         local tName = GetItemInfo(tradedLink)
@@ -281,7 +265,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
                             for i = #WHBLootData, 1, -1 do
                                 local entry = WHBLootData[i]
                                 local eName = GetItemInfo(entry.item)
-                                
                                 if entry.player == myName and eName == tName then
                                     entry.player = WHB_PendingTradeTarget
                                     if IsInGuild() then
@@ -302,14 +285,8 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
 
     elseif event == "TRADE_CLOSED" then
-        C_Timer.After(1.0, function()
-            WHB_PendingTradeTarget = nil
-            WHB_PendingTradeItems = {}
-        end)
+        C_Timer.After(1.0, function() WHB_PendingTradeTarget = nil; WHB_PendingTradeItems = {} end)
 
-    ----------------------------------------
-    -- STANDARD LOOT & SYNC EVENTS
-    ----------------------------------------
     elseif event == "CHAT_MSG_LOOT" then
         if IsInRaid() then
             local zoneName = GetRealZoneText()
@@ -327,31 +304,21 @@ frame:SetScript("OnEvent", function(self, event, ...)
                     
                     local timestamp = date("%Y-%m-%d %H:%M:%S")
                     local dateOnlyStr = date("%Y-%m-%d")
-                    
-                    local rGroup = "Main Raid"
-                    if zoneName == "Karazhan" or zoneName == "Zul'Aman" then
-                        rGroup = WHBSettings.activeGroup
-                    end
+                    local rGroup = (zoneName == "Karazhan" or zoneName == "Zul'Aman") and WHBSettings.activeGroup or "Main Raid"
 
                     local lootEntry = { time = timestamp, dateOnly = dateOnlyStr, player = playerName, item = itemLink, zone = zoneName, group = rGroup }
 
                     if WHB_InstanceTrackingApproved == nil then
                         CheckInstanceTrackingPrompt(zoneName)
-                        
-                        if WHB_InstanceTrackingApproved == "PENDING" then
-                            table.insert(WHB_PendingLootToTrack, lootEntry)
-                            return
-                        end
-                        
+                        if WHB_InstanceTrackingApproved == "PENDING" then table.insert(WHB_PendingLootToTrack, lootEntry); return end
                     elseif WHB_InstanceTrackingApproved == "PENDING" then
-                        table.insert(WHB_PendingLootToTrack, lootEntry)
-                        return
+                        table.insert(WHB_PendingLootToTrack, lootEntry); return
                     end
 
                     if WHB_InstanceTrackingApproved == true then
                         table.insert(WHBLootData, lootEntry)
                         if IsInGuild() then
-                            local msg = timestamp .. "~" .. dateOnlyStr .. "~" .. playerName .. "~" .. itemLink .. "~" .. zoneName .. "~" .. rGroup
+                            local msg = timestamp .. "~" .. dateOnlyStr .. "~" .. playerName .. "~" .. itemLink .. "~" .. zoneName .. "~" .. rGroup .. "~"
                             C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
                         end
                         if WHBMainWindow and WHBMainWindow:IsShown() and UpdateViewer then UpdateViewer() end
@@ -434,7 +401,8 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
 
-            local tTime, tDate, tPlayer, tItem, tZone, tGroup = strsplit("~", text)
+            -- Main Sync Parsing (Supports 7th argument for AddedBy)
+            local tTime, tDate, tPlayer, tItem, tZone, tGroup, tAddedBy = strsplit("~", text)
             if tTime and tItem then
                 if not WHBReceivingSyncFrom then
                     WHBReceivingSyncFrom = cleanSender
@@ -449,13 +417,15 @@ frame:SetScript("OnEvent", function(self, event, ...)
                     if entry.time == tTime and entry.player == tPlayer and entry.item == tItem then isDuplicate = true; break end
                 end
                 if not isDuplicate then
+                    local addedByVal = (tAddedBy and tAddedBy ~= "") and tAddedBy or nil
                     table.insert(WHBLootData, { 
                         time = tTime, 
                         dateOnly = tDate, 
                         player = tPlayer, 
                         item = tItem, 
                         zone = tZone or "Unknown",
-                        group = tGroup or "Main Raid"
+                        group = tGroup or "Main Raid",
+                        addedBy = addedByVal
                     })
                     if WHBMainWindow and WHBMainWindow:IsShown() and UpdateViewer then UpdateViewer() end
                 end
@@ -531,7 +501,6 @@ local messageFrame = CreateFrame("ScrollingMessageFrame", nil, viewerScroll)
 messageFrame:SetSize(560, 390); messageFrame:SetFontObject(ChatFontNormal); messageFrame:SetJustifyH("LEFT")
 messageFrame:SetMaxLines(1000); messageFrame:SetFading(false); messageFrame:SetInsertMode("BOTTOM")
 viewerScroll:SetScrollChild(messageFrame)
-
 messageFrame:SetHyperlinksEnabled(true)
 
 local exportEditBox = CreateFrame("EditBox", nil, viewerScroll)
@@ -540,6 +509,205 @@ exportEditBox:SetMultiLine(true); exportEditBox:SetFontObject(ChatFontNormal); e
 mainWindow:SetScript("OnSizeChanged", function(self, width, height)
     local newWidth = width - 40; local newHeight = height - 160 
     if newWidth > 0 and newHeight > 0 then messageFrame:SetSize(newWidth, newHeight); exportEditBox:SetWidth(newWidth) end
+end)
+
+----------------------------------------
+-- NEW: MANUAL ADD TAB
+----------------------------------------
+local manualAddFrame = CreateFrame("Frame", nil, mainWindow)
+manualAddFrame:SetPoint("TOPLEFT", 10, -30)
+manualAddFrame:SetPoint("BOTTOMRIGHT", -10, 40)
+manualAddFrame:Hide()
+
+local mTitle = manualAddFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+mTitle:SetPoint("TOP", 0, -20)
+mTitle:SetText("Manually Add Loot Entry")
+
+local mItemLabel = manualAddFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+mItemLabel:SetPoint("TOPLEFT", 50, -70)
+mItemLabel:SetText("Item Link or Name:")
+
+local mItemBox = CreateFrame("EditBox", "WHBManualItemBox", manualAddFrame, "InputBoxTemplate")
+mItemBox:SetPoint("TOPLEFT", 180, -65)
+mItemBox:SetSize(250, 20)
+mItemBox:SetAutoFocus(false)
+
+local mPlayerLabel = manualAddFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+mPlayerLabel:SetPoint("TOPLEFT", 50, -105)
+mPlayerLabel:SetText("Player Name:")
+
+local mPlayerBox = CreateFrame("EditBox", "WHBManualPlayerBox", manualAddFrame, "InputBoxTemplate")
+mPlayerBox:SetPoint("TOPLEFT", 180, -100)
+mPlayerBox:SetSize(250, 20)
+mPlayerBox:SetAutoFocus(false)
+
+local mSessionLabel = manualAddFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+mSessionLabel:SetPoint("TOPLEFT", 50, -140)
+mSessionLabel:SetText("Target Session:")
+
+local mSessionDropdown = CreateFrame("Frame", "WHBManualSessionDropdown", manualAddFrame, "UIDropDownMenuTemplate")
+mSessionDropdown:SetPoint("TOPLEFT", 160, -135)
+UIDropDownMenu_SetWidth(mSessionDropdown, 250)
+
+local mZoneLabel = manualAddFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+mZoneLabel:SetPoint("TOPLEFT", 50, -175)
+mZoneLabel:SetText("Zone / Source:")
+
+local mZoneDropdown = CreateFrame("Frame", "WHBManualZoneDropdown", manualAddFrame, "UIDropDownMenuTemplate")
+mZoneDropdown:SetPoint("TOPLEFT", 160, -170)
+
+local mGroupLabel = manualAddFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+mGroupLabel:SetPoint("TOPLEFT", 50, -210)
+mGroupLabel:SetText("Group Tag:")
+
+local mGroupDropdown = CreateFrame("Frame", "WHBManualGroupDropdown", manualAddFrame, "UIDropDownMenuTemplate")
+mGroupDropdown:SetPoint("TOPLEFT", 160, -205)
+
+-- State Variables for Manual Add
+local manualSelectedSession = "NEW"
+local manualSessionData = nil
+local manualSelectedZone = "Guild Bank"
+local manualSelectedGroup = "Main Raid"
+
+local manualZonesList = { "Guild Bank", "Karazhan", "Gruul's Lair", "Magtheridon's Lair", "Serpentshrine Cavern", "The Eye", "Hyjal Summit", "Black Temple", "Zul'Aman", "Sunwell Plateau" }
+local manualGroupsList = { "Main Raid", "Group 1", "Group 2", "Group 3", "Group 4", "Group 5" }
+
+local function UpdateManualVisibility()
+    if manualSelectedSession == "NEW" or not manualSessionData then
+        mZoneLabel:Show(); mZoneDropdown:Show()
+        mGroupLabel:Show(); mGroupDropdown:Show()
+    else
+        mZoneLabel:Hide(); mZoneDropdown:Hide()
+        mGroupLabel:Hide(); mGroupDropdown:Hide()
+    end
+end
+
+local function ManualSession_OnClick(self, arg1, arg2)
+    manualSelectedSession = arg1
+    manualSessionData = arg2
+    UIDropDownMenu_SetSelectedValue(mSessionDropdown, arg1)
+    UIDropDownMenu_SetText(mSessionDropdown, arg1)
+    UpdateManualVisibility()
+end
+
+local function InitManualSession(self, level)
+    local info = UIDropDownMenu_CreateInfo()
+    info.text = "New Session (Current Time)"
+    info.arg1 = "NEW"
+    info.arg2 = nil
+    info.func = ManualSession_OnClick
+    info.checked = (manualSelectedSession == "NEW")
+    UIDropDownMenu_AddButton(info, level)
+
+    -- Extract unique sessions
+    local found = {}
+    local sessions = {}
+    for _, entry in ipairs(WHBLootData) do
+        local d = entry.dateOnly or string.sub(entry.time, 1, 10)
+        local z = entry.zone or "Unknown"
+        local g = entry.group or "Main Raid"
+        local key = d .. "|" .. z .. "|" .. g
+        local display = d .. " - " .. z .. " [" .. g .. "]"
+        
+        if not found[key] then
+            found[key] = true
+            table.insert(sessions, { display = display, date = d, zone = z, group = g, sortKey = key })
+        end
+    end
+    table.sort(sessions, function(a, b) return a.sortKey > b.sortKey end)
+
+    for _, s in ipairs(sessions) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = s.display
+        info.arg1 = s.display
+        info.arg2 = s
+        info.func = ManualSession_OnClick
+        info.checked = (manualSelectedSession == s.display)
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+
+local function ManualZone_OnClick(self, arg1)
+    manualSelectedZone = arg1
+    UIDropDownMenu_SetSelectedValue(mZoneDropdown, arg1)
+    UIDropDownMenu_SetText(mZoneDropdown, arg1)
+end
+local function InitManualZone(self, level)
+    for _, z in ipairs(manualZonesList) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = z; info.arg1 = z; info.func = ManualZone_OnClick; info.checked = (manualSelectedZone == z)
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+
+local function ManualGroup_OnClick(self, arg1)
+    manualSelectedGroup = arg1
+    UIDropDownMenu_SetSelectedValue(mGroupDropdown, arg1)
+    UIDropDownMenu_SetText(mGroupDropdown, arg1)
+end
+local function InitManualGroup(self, level)
+    for _, g in ipairs(manualGroupsList) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = g; info.arg1 = g; info.func = ManualGroup_OnClick; info.checked = (manualSelectedGroup == g)
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+
+local mSubmitBtn = CreateFrame("Button", nil, manualAddFrame, "UIPanelButtonTemplate")
+mSubmitBtn:SetPoint("BOTTOM", 0, 40)
+mSubmitBtn:SetSize(150, 30)
+mSubmitBtn:SetText("Add Entry")
+
+mSubmitBtn:SetScript("OnClick", function()
+    local item = mItemBox:GetText()
+    local player = mPlayerBox:GetText()
+    
+    if item == "" or player == "" then
+        print("|cFFFF0000[WHB Loot Tracker]|r Error: You must enter both an Item and a Player Name.")
+        return
+    end
+
+    local timestamp, dateOnlyStr, finalZone, finalGroup
+
+    if manualSelectedSession == "NEW" or not manualSessionData then
+        timestamp = date("%Y-%m-%d %H:%M:%S")
+        dateOnlyStr = date("%Y-%m-%d")
+        finalZone = manualSelectedZone
+        finalGroup = manualSelectedGroup
+    else
+        dateOnlyStr = manualSessionData.date
+        timestamp = dateOnlyStr .. " " .. date("%H:%M:%S")
+        finalZone = manualSessionData.zone
+        finalGroup = manualSessionData.group
+    end
+
+    local addedByOfficer = UnitName("player") or "Unknown"
+
+    local entry = { 
+        time = timestamp, 
+        dateOnly = dateOnlyStr, 
+        player = player, 
+        item = item, 
+        zone = finalZone, 
+        group = finalGroup, 
+        addedBy = addedByOfficer 
+    }
+    
+    table.insert(WHBLootData, entry)
+    
+    if IsInGuild() then
+        local msg = timestamp .. "~" .. dateOnlyStr .. "~" .. player .. "~" .. item .. "~" .. finalZone .. "~" .. finalGroup .. "~" .. addedByOfficer
+        C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
+    end
+
+    print("|cFF00FF00[WHB Loot Tracker]|r Manually added " .. item .. " for " .. player .. ".")
+    
+    mItemBox:SetText("")
+    mPlayerBox:SetText("")
+    mItemBox:ClearFocus()
+    mPlayerBox:ClearFocus()
+    
+    if UpdateViewer then UpdateViewer() end
 end)
 
 ----------------------------------------
@@ -744,6 +912,9 @@ local function BuildPermGrid()
     end
 end
 
+-- FORWARD DECLARATION FOR THE LOCKDOWN LOGIC
+local manualAddTabBtn = CreateFrame("Button", "WHBManualTabBtn", mainWindow, "UIPanelButtonTemplate")
+
 local function ApplyOfficerLockdowns()
     local playerRank = GetSafeRank()
     local hasPerms = WHBSettings.allowedRanks and WHBSettings.allowedRanks[playerRank]
@@ -758,6 +929,7 @@ local function ApplyOfficerLockdowns()
         raidLabel:SetTextColor(1, 0.82, 0)
         daCb:Enable(); daCb.text:SetTextColor(1, 0.82, 0)
         daEdit:Enable(); daEdit:SetTextColor(1, 1, 1)
+        manualAddTabBtn:Enable()
         for i=1, #tbcRaids do local cb = _G["WHBIgnoreCB"..i]; if cb then cb:Enable(); cb.text:SetTextColor(1, 0.82, 0) end end
     else
         qualityBtn:Disable()
@@ -766,6 +938,7 @@ local function ApplyOfficerLockdowns()
         raidLabel:SetTextColor(0.5, 0.5, 0.5)
         daCb:Disable(); daCb.text:SetTextColor(0.5, 0.5, 0.5)
         daEdit:Disable(); daEdit:SetTextColor(0.5, 0.5, 0.5)
+        manualAddTabBtn:Disable()
         for i=1, #tbcRaids do local cb = _G["WHBIgnoreCB"..i]; if cb then cb:Disable(); cb.text:SetTextColor(0.5, 0.5, 0.5) end end
     end
 end
@@ -793,6 +966,15 @@ reqSyncBtn:SetScript("OnEnter", function(self)
 end)
 reqSyncBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+manualAddTabBtn:SetScript("OnEnter", function(self)
+    if not self:IsEnabled() then
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("|cFFFF0000Permission Denied|r\nOnly Officers can manually insert loot entries.")
+        GameTooltip:Show()
+    end
+end)
+manualAddTabBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
 WHBSyncIndex = 1
 WHBSyncTarget = "GUILD"
 
@@ -815,7 +997,8 @@ function WHBSendNextSync()
     end
     
     local entry = WHBLootData[WHBSyncIndex]
-    local msg = entry.time .. "~" .. (entry.dateOnly or "") .. "~" .. (entry.player or "") .. "~" .. (entry.item or "") .. "~" .. (entry.zone or "Unknown") .. "~" .. (entry.group or "Main Raid")
+    local addedByStr = entry.addedBy or ""
+    local msg = entry.time .. "~" .. (entry.dateOnly or "") .. "~" .. (entry.player or "") .. "~" .. (entry.item or "") .. "~" .. (entry.zone or "Unknown") .. "~" .. (entry.group or "Main Raid") .. "~" .. addedByStr
     
     if WHBSyncTarget == "GUILD" then C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD") else C_ChatInfo.SendAddonMessage("WHBLoot", msg, "WHISPER", WHBSyncTarget) end
     WHBSyncIndex = WHBSyncIndex + 1; C_Timer.After(0.05, WHBSendNextSync) 
@@ -911,8 +1094,10 @@ function UpdateViewer()
             
             local groupTag = ""
             if entryGroup ~= "Main Raid" then groupTag = " [" .. entryGroup .. "]" end
+            
+            local addedByTag = entry.addedBy and " |cFF888888(Added by " .. entry.addedBy .. ")|r" or ""
 
-            messageFrame:AddMessage(displayTime .. " - " .. entry.player .. " looted " .. entry.item .. " in " .. entryZone .. groupTag)
+            messageFrame:AddMessage(displayTime .. " - " .. entry.player .. " looted " .. entry.item .. " in " .. entryZone .. groupTag .. addedByTag)
             hasData = true
         end
     end
@@ -981,27 +1166,31 @@ end
 local exportBtn = CreateFrame("Button", nil, mainWindow, "UIPanelButtonTemplate")
 exportBtn:SetPoint("BOTTOMLEFT", 10, 10); exportBtn:SetSize(100, 25)
 
+manualAddTabBtn:SetPoint("LEFT", exportBtn, "RIGHT", 10, 0); manualAddTabBtn:SetSize(100, 25)
+manualAddTabBtn:SetText("Manual Add")
+
 local optionsToggleBtn = CreateFrame("Button", nil, mainWindow, "UIPanelButtonTemplate")
-optionsToggleBtn:SetPoint("LEFT", exportBtn, "RIGHT", 10, 0); optionsToggleBtn:SetSize(100, 25)
+optionsToggleBtn:SetPoint("LEFT", manualAddTabBtn, "RIGHT", 10, 0); optionsToggleBtn:SetSize(100, 25)
 
 local creditsBtn = CreateFrame("Button", nil, mainWindow, "UIPanelButtonTemplate")
 creditsBtn:SetPoint("LEFT", optionsToggleBtn, "RIGHT", 10, 0); creditsBtn:SetSize(100, 25)
 
-local isExportMode = false; local isOptionsMode = false; local isCreditsMode = false
+local isExportMode = false; local isOptionsMode = false; local isCreditsMode = false; local isManualMode = false
 
 local function ResetViews() 
-    viewerScroll:Hide(); exportEditBox:Hide(); optionsFrame:Hide(); creditsFrame:Hide()
+    viewerScroll:Hide(); exportEditBox:Hide(); optionsFrame:Hide(); creditsFrame:Hide(); manualAddFrame:Hide()
     zoneDropdown:Hide(); groupDropdown:Hide(); dateDropdown:Hide()
     searchLabel:Hide(); searchBox:Hide()
     
     exportBtn:SetText("Export CSV")
+    manualAddTabBtn:SetText("Manual Add")
     optionsToggleBtn:SetText("Options")
     creditsBtn:SetText("Credits")
 end
 
 exportBtn:SetScript("OnClick", function()
     local wasExport = isExportMode
-    isExportMode, isOptionsMode, isCreditsMode = false, false, false
+    isExportMode, isOptionsMode, isCreditsMode, isManualMode = false, false, false, false
     ResetViews()
     
     if not wasExport then
@@ -1025,7 +1214,8 @@ exportBtn:SetScript("OnClick", function()
             local playerMatch = (searchText == "" or string.find((entry.player or ""):lower(), searchText, 1, true) ~= nil)
             
             if zoneMatch and groupMatch and dateMatch and playerMatch then
-                csvData = csvData .. entry.time .. "," .. (entry.player or "Unknown") .. "," .. (entry.item or "Unknown") .. "," .. entryZone .. "," .. entryGroup .. "\n"
+                local addedByStr = entry.addedBy and (" (Added by " .. entry.addedBy .. ")") or ""
+                csvData = csvData .. entry.time .. "," .. (entry.player or "Unknown") .. "," .. (entry.item or "Unknown") .. addedByStr .. "," .. entryZone .. "," .. entryGroup .. "\n"
             end
         end
         exportEditBox:SetText(csvData); viewerScroll:Show(); exportEditBox:Show(); viewerScroll:SetScrollChild(exportEditBox); exportEditBox:HighlightText()
@@ -1035,9 +1225,33 @@ exportBtn:SetScript("OnClick", function()
     end
 end)
 
+manualAddTabBtn:SetScript("OnClick", function()
+    local wasManual = isManualMode
+    isExportMode, isOptionsMode, isCreditsMode, isManualMode = false, false, false, false
+    ResetViews()
+    
+    if not wasManual then
+        isManualMode = true
+        mainWindow.title:SetText("WHB Loot Tracker - Manually Add Loot")
+        manualAddTabBtn:SetText("Back")
+        manualAddFrame:Show()
+        
+        UIDropDownMenu_Initialize(WHBManualSessionDropdown, InitManualSession)
+        UIDropDownMenu_SetText(WHBManualSessionDropdown, manualSelectedSession)
+        UpdateManualVisibility()
+        UIDropDownMenu_Initialize(WHBManualZoneDropdown, InitManualZone)
+        UIDropDownMenu_SetText(WHBManualZoneDropdown, manualSelectedZone)
+        UIDropDownMenu_Initialize(WHBManualGroupDropdown, InitManualGroup)
+        UIDropDownMenu_SetText(WHBManualGroupDropdown, manualSelectedGroup)
+    else
+        mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
+        zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
+    end
+end)
+
 optionsToggleBtn:SetScript("OnClick", function()
     local wasOptions = isOptionsMode
-    isExportMode, isOptionsMode, isCreditsMode = false, false, false
+    isExportMode, isOptionsMode, isCreditsMode, isManualMode = false, false, false, false
     ResetViews()
     
     if not wasOptions then
@@ -1059,7 +1273,7 @@ end)
 
 creditsBtn:SetScript("OnClick", function()
     local wasCredits = isCreditsMode
-    isExportMode, isOptionsMode, isCreditsMode = false, false, false
+    isExportMode, isOptionsMode, isCreditsMode, isManualMode = false, false, false, false
     ResetViews()
     
     if not wasCredits then

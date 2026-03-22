@@ -1,7 +1,21 @@
 # Changelog - WHB Loot Tracker Classic
 
 All notable changes to this project will be documented in this file.
+## [1.7.0 🥚EggsBenny] - 2026-03-21
 
+### 🚀 Added
+- **Retroactive Session Targeting:** Officers can now attach manually added loot directly to an *existing* raid session. Selecting a previous run from the new "Target Session" dropdown automatically syncs the date, zone, and group tags to keep your database and exports perfectly organized.
+
+---
+
+## [1.7.0] - 2026-03-21
+
+### 🚀 Added
+- **Manual Add Engine:** Added a dedicated "Manual Add" tab to the main UI. Officers can now easily inject missed loot, log Guild Bank deposits, or correct historical data using a clean graphical interface (no slash commands required). You can even Shift-Click items directly into the text box!
+- **Accountability & Transparency (Paper Trail):** Every manually added item now permanently records the name of the Officer who created the entry. This is broadcast to the guild, displayed in the viewer as `(Added by OfficerName)`, and included in the CSV Export to ensure complete transparency.
+- **Strict Officer Lockdowns:** The "Manual Add" button is strictly locked behind Sync Permissions. Normal guild members will see the button permanently grayed out.
+
+---
 ## [1.6.2] - 2026-03-21
 
 ### 🚀 Added
