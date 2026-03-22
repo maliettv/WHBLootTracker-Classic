@@ -6,7 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### 🚀 Added
 
-- **Doomdrizzle** Added to the credits. 
+- **Doomdrizzle** Added to the credits
+
+### 🐞 Fixed
+
+- **API Compatibility Fix:** Resolved a critical crash (`attempt to call global 'GetLootMethod'`) caused by recent changes to the World of Warcraft internal API. Replaced with a version-safe global check.
+
+---
 
 ## [1.6.1] - 2026-03-21
 

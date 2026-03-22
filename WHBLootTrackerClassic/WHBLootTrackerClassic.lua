@@ -65,7 +65,7 @@ local function IsSenderAuthorized(senderName)
     return false
 end
 
--- Helper to compare semantic versions 
+-- Helper to compare semantic versions (e.g. 1.6.2 vs 1.6.1)
 local function IsNewerVersion(remoteVer)
     local v1, v2, v3 = strsplit(".", WHB_CURRENT_VERSION)
     local r1, r2, r3 = strsplit(".", remoteVer)
@@ -88,8 +88,15 @@ local function CheckInstanceTrackingPrompt(zoneName)
     end
 
     local guildCount = 0
-    for i = 1, GetNumGroupMembers() do
-        if UnitIsInMyGuild("raid"..i) then guildCount = guildCount + 1 end
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do
+            if UnitIsInMyGuild("raid"..i) then guildCount = guildCount + 1 end
+        end
+    elseif IsInGroup() then
+        for i = 1, GetNumGroupMembers() do
+            if UnitIsInMyGuild("party"..i) then guildCount = guildCount + 1 end
+        end
+        if UnitIsInMyGuild("player") then guildCount = guildCount + 1 end
     end
 
     -- Trigger Thresholds
@@ -172,7 +179,6 @@ StaticPopupDialogs["WHB_DISCORD_POPUP"] = {
     button1 = "Close",
     hasEditBox = true,
     OnShow = function(self)
-        -- FIXED: WoW uses self.EditBox with a capital E
         if self.EditBox then
             self.EditBox:SetText("https://discord.gg/whbguild")
             self.EditBox:HighlightText()
@@ -216,17 +222,25 @@ frame:SetScript("OnEvent", function(self, event, ...)
             hasBroadcastVersion = true
         end
         
+    ----------------------------------------
+    -- MASTER LOOTER CHECK (SECURED WITH DELAY)
+    ----------------------------------------
     elseif event == "PARTY_LOOT_METHOD_CHANGED" then
-        if IsInRaid() then
-            local lootMethod = GetLootMethod()
-            if lootMethod == "master" then
-                local zoneName = GetRealZoneText()
-                if not WHBSettings.ignoredZones[zoneName] then
-                    CheckInstanceTrackingPrompt(zoneName)
+        C_Timer.After(0.5, function() 
+            if IsInRaid() then
+                local lootMethod = _G.GetLootMethod and _G.GetLootMethod() or "n/a"
+                if lootMethod == "master" then
+                    local zoneName = GetRealZoneText()
+                    if not WHBSettings.ignoredZones[zoneName] then
+                        CheckInstanceTrackingPrompt(zoneName)
+                    end
                 end
             end
-        end
+        end)
 
+    ----------------------------------------
+    -- TRADE EVENT LOGIC
+    ----------------------------------------
     elseif event == "TRADE_SHOW" then
         WHB_PendingTradeTarget = UnitName("npc")
         WHB_PendingTradeItems = {}
@@ -277,6 +291,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
             WHB_PendingTradeItems = {}
         end)
 
+    ----------------------------------------
+    -- STANDARD LOOT & SYNC EVENTS
+    ----------------------------------------
     elseif event == "CHAT_MSG_LOOT" then
         if IsInRaid() then
             local zoneName = GetRealZoneText()
@@ -304,10 +321,12 @@ frame:SetScript("OnEvent", function(self, event, ...)
 
                     if WHB_InstanceTrackingApproved == nil then
                         CheckInstanceTrackingPrompt(zoneName)
+                        
                         if WHB_InstanceTrackingApproved == "PENDING" then
                             table.insert(WHB_PendingLootToTrack, lootEntry)
                             return
                         end
+                        
                     elseif WHB_InstanceTrackingApproved == "PENDING" then
                         table.insert(WHB_PendingLootToTrack, lootEntry)
                         return
@@ -836,12 +855,12 @@ cTitle:SetText("Made with <3 for Waffle House Brawlers")
 local cBody = creditsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 cBody:SetPoint("TOP", cTitle, "BOTTOM", 0, -30)
 cBody:SetJustifyH("CENTER")
-cBody:SetText("Maliettv - Design and Coding\n\nBowphades - Concepts and Features\n\nFartjars - For putting up with Maliettv\n\nBigpingus - For being the guilds floor mat (RIP PINGUS)\n\nRealpower - For being the best Pally Tank Partner Maliettv could have.\n\nTreechopper - Being the voice of reason\n\nDoomdrizzle - For keeping a coolhead\n\n\n|cFF00FF00The whole WoW Community for using this addon!|r")
+cBody:SetText("Maliettv - Design and Coding\n\nBowphades - Concepts and Features\n\nFartjars - For putting up with Maliettv\n\nBigpingus - For being the guilds floor mat (RIP PINGUS)\n\nRealpower - For being the best Pally Tank Partner Maliettv could have.\n\nTreechopper - Being the voice of reason\n\nDoomdrizzle - For keeping a cool head\n\n\n|cFF00FF00The whole WoW Community for using this addon!|r")
 
 local discordBtn = CreateFrame("Button", nil, creditsFrame, "UIPanelButtonTemplate")
 discordBtn:SetPoint("TOP", cBody, "BOTTOM", 0, -20)
-discordBtn:SetSize(240, 30)
-discordBtn:SetText("Visit the Waffle House")
+discordBtn:SetSize(180, 30)
+discordBtn:SetText("Join our Discord")
 discordBtn:SetScript("OnClick", function()
     StaticPopup_Show("WHB_DISCORD_POPUP")
 end)
