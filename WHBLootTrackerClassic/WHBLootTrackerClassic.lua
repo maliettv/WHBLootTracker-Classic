@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.7.3 French Toast"
+WHB_CURRENT_VERSION = "1.7.3a French Toast"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -297,7 +297,11 @@ frame:SetScript("OnEvent", function(self, event, ...)
         WHB_AutoConfirmSelfLoot = false -- Resets the flag each new zone
 
         if IsInGuild() then
-            GuildRoster()
+            if C_GuildInfo and C_GuildInfo.GuildRoster then
+                C_GuildInfo.GuildRoster()
+            elseif _G.GuildRoster then
+                _G.GuildRoster()
+            end
             if not hasBroadcastVersion then
                 C_Timer.After(5, function() 
                     C_ChatInfo.SendAddonMessage("WHBLoot", "VER_CHECK~" .. WHB_CURRENT_VERSION, "GUILD") 
@@ -1374,7 +1378,7 @@ creditsBtn:SetPoint("LEFT", optionsToggleBtn, "RIGHT", 10, 0); creditsBtn:SetSiz
 local isExportMode = false; local isOptionsMode = false; local isCreditsMode = false; local isManualMode = false
 
 local function ResetViews() 
-    viewerScroll:Hide(); exportEditBox:Hide(); optionsFrame:Hide(); creditsFrame:Hide(); manualAddFrame:Hide()
+    viewerScroll:Hide(); exportEditBox:Hide(); messageFrame:Hide(); optionsFrame:Hide(); creditsFrame:Hide(); manualAddFrame:Hide()
     zoneDropdown:Hide(); groupDropdown:Hide(); dateDropdown:Hide()
     searchLabel:Hide(); searchBox:Hide()
     
@@ -1421,6 +1425,7 @@ exportBtn:SetScript("OnClick", function()
     else
         mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
         zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
+        viewerScroll:SetScrollChild(messageFrame)
     end
 end)
 
@@ -1445,6 +1450,7 @@ manualAddTabBtn:SetScript("OnClick", function()
     else
         mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
         zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
+        viewerScroll:SetScrollChild(messageFrame)
     end
 end)
 
@@ -1467,6 +1473,7 @@ optionsToggleBtn:SetScript("OnClick", function()
     else
         mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
         zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
+        viewerScroll:SetScrollChild(messageFrame)
     end
 end)
 
@@ -1483,12 +1490,14 @@ creditsBtn:SetScript("OnClick", function()
     else
         mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
         zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
+        viewerScroll:SetScrollChild(messageFrame)
     end
 end)
 
 ResetViews()
 mainWindow.title:SetText("WHB Loot Tracker - Viewer v" .. WHB_CURRENT_VERSION)
 zoneDropdown:Show(); groupDropdown:Show(); dateDropdown:Show(); searchLabel:Show(); searchBox:Show(); viewerScroll:Show(); messageFrame:Show()
+viewerScroll:SetScrollChild(messageFrame)
 
 ----------------------------------------
 -- SLASH COMMANDS
