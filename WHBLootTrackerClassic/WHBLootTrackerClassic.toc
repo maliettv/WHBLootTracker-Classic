@@ -2,7 +2,7 @@
 ## Title: WHB Loot Tracker Classic
 ## Notes: Records raid loot, includes an in-game viewer, CSV exporter, and Guild Sync.
 ## Author: Maliettv-Nightslayer US
-## Version: 1.6.4
+## Version: 1.7.3 French Toast
 ## SavedVariables: WHBLootData, WHBSettings
 
 WHBLootTrackerClassic.lua

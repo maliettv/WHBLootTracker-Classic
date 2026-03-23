@@ -1,5 +1,5 @@
 -- Initialize saved variables & Version
-WHB_CURRENT_VERSION = "1.7.0 Eggsbenny"
+WHB_CURRENT_VERSION = "1.7.3 French Toast"
 WHBLootData = WHBLootData or {}
 WHBSettings = WHBSettings or { 
     minQuality = 3, 
@@ -13,6 +13,7 @@ WHBSettings = WHBSettings or {
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+frame:RegisterEvent("GUILD_ROSTER_UPDATE")
 frame:RegisterEvent("CHAT_MSG_LOOT")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
@@ -42,6 +43,27 @@ local WHB_PendingLootToTrack = {}
 -- Trade Tracking Variables
 local WHB_PendingTradeTarget = nil
 local WHB_PendingTradeItems = {}
+
+-- Master Loot Self-Assign Flags
+local WHB_ExpectedSelfMasterLoot = {}
+local WHB_AutoConfirmSelfLoot = false
+
+-- Online Users Tracking
+WHBOnlineUsersTable = {}
+
+-- Class Color Cache
+WHB_PlayerClassCache = {}
+
+local function ScanGuildClasses()
+    if not IsInGuild() then return end
+    for i = 1, GetNumGuildMembers() do
+        local name, _, _, _, _, _, _, _, _, _, classFileName = GetGuildRosterInfo(i)
+        if name and classFileName then
+            local cleanName = name:match("([^%-]+)") or name
+            WHB_PlayerClassCache[cleanName] = classFileName
+        end
+    end
+end
 
 -- Safe helper function to get rank
 local function GetSafeRank()
@@ -84,7 +106,9 @@ local function CheckInstanceTrackingPrompt(zoneName)
 
     local _, _, _, _, maxPlayers = GetInstanceInfo()
     if not maxPlayers or maxPlayers == 0 then
-        if zoneName == "Karazhan" or zoneName == "Zul'Aman" then maxPlayers = 10 else maxPlayers = 25 end
+        if zoneName == "Karazhan" or zoneName == "Zul'Aman" then maxPlayers = 10 
+        elseif zoneName == "Ragefire Chasm" then maxPlayers = 5
+        else maxPlayers = 25 end
     end
 
     local guildCount = 0
@@ -97,14 +121,36 @@ local function CheckInstanceTrackingPrompt(zoneName)
             if UnitIsInMyGuild("party"..i) then guildCount = guildCount + 1 end
         end
         if UnitIsInMyGuild("player") then guildCount = guildCount + 1 end
+    else
+        -- Solo testing fallback
+        if UnitIsInMyGuild("player") then guildCount = 1 end
     end
 
     -- Trigger Thresholds
-    if (maxPlayers <= 10 and guildCount <= 9) or (maxPlayers > 10 and guildCount <= 18) then
+    if (maxPlayers <= 5 and guildCount <= 4) or (maxPlayers > 5 and maxPlayers <= 10 and guildCount <= 9) or (maxPlayers > 10 and guildCount <= 18) then
         WHB_InstanceTrackingApproved = "PENDING"
         StaticPopup_Show("WHB_CONFIRM_TRACKING", tostring(maxPlayers), tostring(guildCount))
     else
         WHB_InstanceTrackingApproved = true
+    end
+end
+
+----------------------------------------
+-- QOL FUNCTION: AUTO-CONFIRM PENDING LOOT
+----------------------------------------
+local function ConfirmPendingSelfLoot(timestamp)
+    local myName = UnitName("player")
+    for i = #WHBLootData, 1, -1 do
+        local entry = WHBLootData[i]
+        if entry.time == timestamp and entry.player == "Pending Trade" then
+            entry.player = myName
+            if IsInGuild() then
+                C_ChatInfo.SendAddonMessage("WHBLoot", "MOD~"..entry.time.."~Pending Trade~"..entry.item.."~"..myName, "GUILD")
+            end
+            print("|cFF00FF00[WHB Loot Tracker]|r Item confirmed for " .. myName .. ".")
+            if UpdateViewer then UpdateViewer() end
+            break
+        end
     end
 end
 
@@ -148,27 +194,38 @@ StaticPopupDialogs["WHB_CLEAR_DATA"] = {
 }
 
 StaticPopupDialogs["WHB_CONFIRM_TRACKING"] = {
-    text = "|cFF00FF00[WHB Loot Tracker]|r\nYou are in a %s-man raid with only %s guild members.\nDo you want to track loot for this run?",
+    text = "|cFF00FF00[WHB Loot Tracker]|r\nYou are in a %s-man instance with only %s guild members.\nDo you want to track loot for this run?",
     button1 = "Yes, Track It",
     button2 = "No, Ignore",
     OnAccept = function()
         WHB_InstanceTrackingApproved = true
         for _, entry in ipairs(WHB_PendingLootToTrack) do
+            local showConfirm = entry.requiresSelfConfirm
+            entry.requiresSelfConfirm = nil 
+            
             table.insert(WHBLootData, entry)
             if IsInGuild() then
                 local addedByStr = entry.addedBy or ""
                 local msg = entry.time .. "~" .. entry.dateOnly .. "~" .. entry.player .. "~" .. entry.item .. "~" .. entry.zone .. "~" .. entry.group .. "~" .. addedByStr
                 C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
             end
+            
+            if showConfirm then
+                if WHB_AutoConfirmSelfLoot == "NO_TO_ALL" then
+                    -- Silently leave as Pending Trade
+                else
+                    StaticPopup_Show("WHB_LOOT_SELF_CONFIRM", entry.item, nil, entry.time)
+                end
+            end
         end
         WHB_PendingLootToTrack = {}
         if WHBMainWindow and WHBMainWindow:IsShown() and UpdateViewer then UpdateViewer() end
-        print("|cFF00FF00[WHB Loot Tracker]|r Loot tracking ENABLED for this raid session.")
+        print("|cFF00FF00[WHB Loot Tracker]|r Loot tracking ENABLED for this session.")
     end,
     OnCancel = function()
         WHB_InstanceTrackingApproved = false
         WHB_PendingLootToTrack = {}
-        print("|cFFFF0000[WHB Loot Tracker]|r Loot tracking DISABLED for this raid session.")
+        print("|cFFFF0000[WHB Loot Tracker]|r Loot tracking DISABLED for this session.")
     end,
     timeout = 0,
     whileDead = true,
@@ -188,6 +245,27 @@ StaticPopupDialogs["WHB_DISCORD_POPUP"] = {
     end,
     EditBoxOnEscapePressed = function(self)
         self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+-- ==========================================
+-- MASTER LOOT SELF-CONFIRMATION DIALOG 
+-- ==========================================
+StaticPopupDialogs["WHB_LOOT_SELF_CONFIRM"] = {
+    text = "|cFF00FF00[WHB Loot Tracker]|r\nYou just looted %s.\nIs this item for yourself?",
+    button1 = "Yes (Keep)",
+    button2 = "No (Trade)",
+    button3 = "No to All",
+    OnAccept = function(self)
+        local timestamp = self.data
+        if timestamp then ConfirmPendingSelfLoot(timestamp) end
+    end,
+    OnAlt = function(self)
+        WHB_AutoConfirmSelfLoot = "NO_TO_ALL"
+        print("|cFF00FF00[WHB Loot Tracker]|r Auto-sending all future self-loot to Pending Trade for this run.")
     end,
     timeout = 0,
     whileDead = true,
@@ -215,17 +293,25 @@ frame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "PLAYER_ENTERING_WORLD" then
         WHB_InstanceTrackingApproved = nil
         WHB_PendingLootToTrack = {}
+        WHB_ExpectedSelfMasterLoot = {} 
+        WHB_AutoConfirmSelfLoot = false -- Resets the flag each new zone
 
-        if IsInGuild() and not hasBroadcastVersion then
-            C_Timer.After(5, function() 
-                C_ChatInfo.SendAddonMessage("WHBLoot", "VER_CHECK~" .. WHB_CURRENT_VERSION, "GUILD") 
-            end)
-            hasBroadcastVersion = true
+        if IsInGuild() then
+            GuildRoster()
+            if not hasBroadcastVersion then
+                C_Timer.After(5, function() 
+                    C_ChatInfo.SendAddonMessage("WHBLoot", "VER_CHECK~" .. WHB_CURRENT_VERSION, "GUILD") 
+                end)
+                hasBroadcastVersion = true
+            end
         end
+
+    elseif event == "GUILD_ROSTER_UPDATE" then
+        ScanGuildClasses()
         
     elseif event == "PARTY_LOOT_METHOD_CHANGED" then
         C_Timer.After(0.5, function() 
-            if IsInRaid() then
+            if IsInRaid() or GetRealZoneText() == "Ragefire Chasm" then
                 local isMasterLoot = false
                 if C_PartyInfo and C_PartyInfo.GetLootMethod then
                     if C_PartyInfo.GetLootMethod() == 2 then isMasterLoot = true end
@@ -265,10 +351,12 @@ frame:SetScript("OnEvent", function(self, event, ...)
                             for i = #WHBLootData, 1, -1 do
                                 local entry = WHBLootData[i]
                                 local eName = GetItemInfo(entry.item)
-                                if entry.player == myName and eName == tName then
+                                
+                                if (entry.player == myName or entry.player == "Pending Trade") and eName == tName then
+                                    local oldPlayer = entry.player
                                     entry.player = WHB_PendingTradeTarget
                                     if IsInGuild() then
-                                        local modMsg = "MOD~" .. entry.time .. "~" .. myName .. "~" .. entry.item .. "~" .. WHB_PendingTradeTarget
+                                        local modMsg = "MOD~" .. entry.time .. "~" .. oldPlayer .. "~" .. entry.item .. "~" .. WHB_PendingTradeTarget
                                         C_ChatInfo.SendAddonMessage("WHBLoot", modMsg, "GUILD")
                                     end
                                     print("|cFF00FF00[WHB Loot Tracker]|r Auto-reassigned " .. entry.item .. " to " .. WHB_PendingTradeTarget .. ".")
@@ -288,40 +376,75 @@ frame:SetScript("OnEvent", function(self, event, ...)
         C_Timer.After(1.0, function() WHB_PendingTradeTarget = nil; WHB_PendingTradeItems = {} end)
 
     elseif event == "CHAT_MSG_LOOT" then
-        if IsInRaid() then
+        if IsInRaid() or GetRealZoneText() == "Ragefire Chasm" then
             local zoneName = GetRealZoneText()
             if WHBSettings.ignoredZones[zoneName] then return end 
             
             local message, sender = ...
             local itemLink = message:match("(|c%x+|Hitem:.-|h%[.-%]|h|r)")
-            local playerName = sender:match("([^%-]+)") or sender
+            
+            local playerName = sender
+            if playerName then 
+                playerName = playerName:match("([^%-]+)") or playerName 
+            end
+            
+            if not playerName or playerName == "" or message:find("^You receive") or message:find("^You create") then
+                playerName = UnitName("player")
+            end
             
             if itemLink then
                 local itemName, _, itemQuality = GetItemInfo(itemLink)
                 if not itemQuality or itemQuality >= WHBSettings.minQuality then
                     
                     if WHB_InstanceTrackingApproved == false then return end 
+
+                    local originalPlayer = playerName
+                    local myName = UnitName("player")
+                    local requiresSelfConfirm = false
+                    
+                    if WHB_ExpectedSelfMasterLoot[itemLink] and originalPlayer == myName then
+                        playerName = "Pending Trade"
+                        requiresSelfConfirm = true
+                        WHB_ExpectedSelfMasterLoot[itemLink] = nil 
+                    end
                     
                     local timestamp = date("%Y-%m-%d %H:%M:%S")
                     local dateOnlyStr = date("%Y-%m-%d")
-                    local rGroup = (zoneName == "Karazhan" or zoneName == "Zul'Aman") and WHBSettings.activeGroup or "Main Raid"
+                    local rGroup = (zoneName == "Karazhan" or zoneName == "Zul'Aman" or zoneName == "Ragefire Chasm") and WHBSettings.activeGroup or "Main Raid"
 
-                    local lootEntry = { time = timestamp, dateOnly = dateOnlyStr, player = playerName, item = itemLink, zone = zoneName, group = rGroup }
+                    local lootEntry = { time = timestamp, dateOnly = dateOnlyStr, player = playerName, item = itemLink, zone = zoneName, group = rGroup, addedBy = nil }
 
-                    if WHB_InstanceTrackingApproved == nil then
-                        CheckInstanceTrackingPrompt(zoneName)
-                        if WHB_InstanceTrackingApproved == "PENDING" then table.insert(WHB_PendingLootToTrack, lootEntry); return end
-                    elseif WHB_InstanceTrackingApproved == "PENDING" then
-                        table.insert(WHB_PendingLootToTrack, lootEntry); return
-                    end
-
-                    if WHB_InstanceTrackingApproved == true then
-                        table.insert(WHBLootData, lootEntry)
+                    local function ProcessApprovedLoot(entry, showConfirm)
+                        table.insert(WHBLootData, entry)
                         if IsInGuild() then
-                            local msg = timestamp .. "~" .. dateOnlyStr .. "~" .. playerName .. "~" .. itemLink .. "~" .. zoneName .. "~" .. rGroup .. "~"
+                            local addedByStr = entry.addedBy or ""
+                            local msg = entry.time .. "~" .. entry.dateOnly .. "~" .. entry.player .. "~" .. entry.item .. "~" .. entry.zone .. "~" .. entry.group .. "~" .. addedByStr
                             C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
                         end
                         if WHBMainWindow and WHBMainWindow:IsShown() and UpdateViewer then UpdateViewer() end
+                        
+                        if showConfirm then
+                            if WHB_AutoConfirmSelfLoot == "NO_TO_ALL" then
+                                -- Silently leave as Pending Trade
+                            else
+                                StaticPopup_Show("WHB_LOOT_SELF_CONFIRM", entry.item, nil, entry.time)
+                            end
+                        end
+                    end
+
+                    if WHB_InstanceTrackingApproved == nil then
+                        CheckInstanceTrackingPrompt(zoneName)
+                        if WHB_InstanceTrackingApproved == "PENDING" then 
+                            lootEntry.requiresSelfConfirm = requiresSelfConfirm
+                            table.insert(WHB_PendingLootToTrack, lootEntry)
+                            return 
+                        end
+                    elseif WHB_InstanceTrackingApproved == "PENDING" then
+                        lootEntry.requiresSelfConfirm = requiresSelfConfirm
+                        table.insert(WHB_PendingLootToTrack, lootEntry)
+                        return
+                    elseif WHB_InstanceTrackingApproved == true then
+                        ProcessApprovedLoot(lootEntry, requiresSelfConfirm)
                     end
                 end
             end
@@ -331,6 +454,15 @@ frame:SetScript("OnEvent", function(self, event, ...)
         local prefix, text, channel, sender = ...
         if prefix == "WHBLoot" and sender ~= UnitName("player") then
             local cleanSender = sender:match("([^%-]+)") or sender
+            
+            if text == "PING" then
+                C_ChatInfo.SendAddonMessage("WHBLoot", "PONG", "WHISPER", sender)
+                return
+            elseif text == "PONG" then
+                WHBOnlineUsersTable[cleanSender] = true
+                if WHBUpdateOnlineCount then WHBUpdateOnlineCount() end
+                return
+            end
             
             if text:match("^VER_CHECK~") then
                 local remoteVer = text:match("^VER_CHECK~(.+)")
@@ -401,7 +533,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
                 return
             end
 
-            -- Main Sync Parsing (Supports 7th argument for AddedBy)
+            -- Main Sync Parsing
             local tTime, tDate, tPlayer, tItem, tZone, tGroup, tAddedBy = strsplit("~", text)
             if tTime and tItem then
                 if not WHBReceivingSyncFrom then
@@ -444,6 +576,20 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
     end
 end)
+
+if _G.GiveMasterLoot then
+    hooksecurefunc("GiveMasterLoot", function(slot, index)
+        local itemLink = GetLootSlotLink(slot)
+        local playerName = GetMasterLootCandidate(slot, index)
+        
+        if playerName and itemLink then
+            playerName = playerName:match("([^%-]+)") or playerName
+            if playerName == UnitName("player") then
+                WHB_ExpectedSelfMasterLoot[itemLink] = true
+            end
+        end
+    end)
+end
 
 ----------------------------------------
 -- UI FRAMES (VIEWER, OPTIONS, ETC)
@@ -512,7 +658,7 @@ mainWindow:SetScript("OnSizeChanged", function(self, width, height)
 end)
 
 ----------------------------------------
--- NEW: MANUAL ADD TAB
+-- MANUAL ADD TAB
 ----------------------------------------
 local manualAddFrame = CreateFrame("Frame", nil, mainWindow)
 manualAddFrame:SetPoint("TOPLEFT", 10, -30)
@@ -525,7 +671,7 @@ mTitle:SetText("Manually Add Loot Entry")
 
 local mItemLabel = manualAddFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 mItemLabel:SetPoint("TOPLEFT", 50, -70)
-mItemLabel:SetText("Item Link or Name:")
+mItemLabel:SetText("Item ID:")
 
 local mItemBox = CreateFrame("EditBox", "WHBManualItemBox", manualAddFrame, "InputBoxTemplate")
 mItemBox:SetPoint("TOPLEFT", 180, -65)
@@ -569,7 +715,7 @@ local manualSessionData = nil
 local manualSelectedZone = "Guild Bank"
 local manualSelectedGroup = "Main Raid"
 
-local manualZonesList = { "Guild Bank", "Karazhan", "Gruul's Lair", "Magtheridon's Lair", "Serpentshrine Cavern", "The Eye", "Hyjal Summit", "Black Temple", "Zul'Aman", "Sunwell Plateau" }
+local manualZonesList = { "Guild Bank", "Ragefire Chasm", "Karazhan", "Gruul's Lair", "Magtheridon's Lair", "Serpentshrine Cavern", "The Eye", "Hyjal Summit", "Black Temple", "Zul'Aman", "Sunwell Plateau" }
 local manualGroupsList = { "Main Raid", "Group 1", "Group 2", "Group 3", "Group 4", "Group 5" }
 
 local function UpdateManualVisibility()
@@ -599,7 +745,6 @@ local function InitManualSession(self, level)
     info.checked = (manualSelectedSession == "NEW")
     UIDropDownMenu_AddButton(info, level)
 
-    -- Extract unique sessions
     local found = {}
     local sessions = {}
     for _, entry in ipairs(WHBLootData) do
@@ -659,11 +804,23 @@ mSubmitBtn:SetSize(150, 30)
 mSubmitBtn:SetText("Add Entry")
 
 mSubmitBtn:SetScript("OnClick", function()
-    local item = mItemBox:GetText()
+    local rawItemInput = mItemBox:GetText()
     local player = mPlayerBox:GetText()
     
-    if item == "" or player == "" then
-        print("|cFFFF0000[WHB Loot Tracker]|r Error: You must enter both an Item and a Player Name.")
+    if rawItemInput == "" or player == "" then
+        print("|cFFFF0000[WHB Loot Tracker]|r Error: You must enter both an Item ID and a Player Name.")
+        return
+    end
+
+    local itemID = tonumber(rawItemInput)
+    if not itemID then
+        print("|cFFFF0000[WHB Loot Tracker]|r Error: Please enter a valid numeric Item ID (e.g., 28773 for Gorehowl).")
+        return
+    end
+
+    local itemName, finalItemLink = GetItemInfo(itemID)
+    if not finalItemLink then
+        print("|cFFFF0000[WHB Loot Tracker]|r Error: Could not find Item ID " .. itemID .. " in your local cache. Please verify the number.")
         return
     end
 
@@ -687,7 +844,7 @@ mSubmitBtn:SetScript("OnClick", function()
         time = timestamp, 
         dateOnly = dateOnlyStr, 
         player = player, 
-        item = item, 
+        item = finalItemLink, 
         zone = finalZone, 
         group = finalGroup, 
         addedBy = addedByOfficer 
@@ -696,11 +853,11 @@ mSubmitBtn:SetScript("OnClick", function()
     table.insert(WHBLootData, entry)
     
     if IsInGuild() then
-        local msg = timestamp .. "~" .. dateOnlyStr .. "~" .. player .. "~" .. item .. "~" .. finalZone .. "~" .. finalGroup .. "~" .. addedByOfficer
+        local msg = timestamp .. "~" .. dateOnlyStr .. "~" .. player .. "~" .. finalItemLink .. "~" .. finalZone .. "~" .. finalGroup .. "~" .. addedByOfficer
         C_ChatInfo.SendAddonMessage("WHBLoot", msg, "GUILD")
     end
 
-    print("|cFF00FF00[WHB Loot Tracker]|r Manually added " .. item .. " for " .. player .. ".")
+    print("|cFF00FF00[WHB Loot Tracker]|r Manually added " .. finalItemLink .. " for " .. player .. ".")
     
     mItemBox:SetText("")
     mPlayerBox:SetText("")
@@ -852,7 +1009,7 @@ end
 local raidLabel = optionsFrame:CreateFontString("WHBRaidLabel", "OVERLAY", "GameFontNormal")
 raidLabel:SetPoint("TOP", qualityBtn, "BOTTOM", 0, -45); raidLabel:SetText("Ignore Loot Tracking in:")
 
-local tbcRaids = { "Karazhan", "Gruul's Lair", "Magtheridon's Lair", "Serpentshrine Cavern", "The Eye", "Hyjal Summit", "Black Temple", "Zul'Aman", "Sunwell Plateau" }
+local tbcRaids = { "Ragefire Chasm", "Karazhan", "Gruul's Lair", "Magtheridon's Lair", "Serpentshrine Cavern", "The Eye", "Hyjal Summit", "Black Temple", "Zul'Aman", "Sunwell Plateau" }
 for i, raid in ipairs(tbcRaids) do
     local cb = CreateFrame("CheckButton", "WHBIgnoreCB"..i, optionsFrame, "UICheckButtonTemplate")
     local col = (i % 2 == 1) and 1 or 2; local row = math.ceil(i / 2)
@@ -912,7 +1069,6 @@ local function BuildPermGrid()
     end
 end
 
--- FORWARD DECLARATION FOR THE LOCKDOWN LOGIC
 local manualAddTabBtn = CreateFrame("Button", "WHBManualTabBtn", mainWindow, "UIPanelButtonTemplate")
 
 local function ApplyOfficerLockdowns()
@@ -1042,7 +1198,7 @@ clearBtn:SetScript("OnClick", function()
 end)
 
 ----------------------------------------
--- CREDITS PANEL 
+-- CREDITS PANEL & LIVE USER TRACKER
 ----------------------------------------
 local creditsFrame = CreateFrame("Frame", nil, mainWindow)
 creditsFrame:SetPoint("TOPLEFT", 10, -30); creditsFrame:SetPoint("BOTTOMRIGHT", -10, 40); creditsFrame:Hide()
@@ -1067,6 +1223,33 @@ end)
 local vLabel = creditsFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 vLabel:SetPoint("BOTTOM", 0, 10)
 vLabel:SetText("Version " .. WHB_CURRENT_VERSION)
+
+local onlineCounterLabel = creditsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+onlineCounterLabel:SetPoint("BOTTOM", vLabel, "TOP", 0, 15)
+onlineCounterLabel:SetText("Online Addon Users: Scanning...")
+
+function WHBUpdateOnlineCount()
+    if not creditsFrame:IsVisible() then return end
+    local count = 0
+    for _ in pairs(WHBOnlineUsersTable) do 
+        count = count + 1 
+    end
+    onlineCounterLabel:SetText("Online Addon Users: |cFF00FF00" .. count .. "|r")
+end
+
+creditsFrame:SetScript("OnShow", function()
+    WHBOnlineUsersTable = {}
+    local myName = UnitName("player")
+    if myName then WHBOnlineUsersTable[myName] = true end
+    
+    if IsInGuild() then
+        onlineCounterLabel:SetText("Online Addon Users: Scanning...")
+        C_ChatInfo.SendAddonMessage("WHBLoot", "PING", "GUILD")
+        C_Timer.After(2.0, WHBUpdateOnlineCount)
+    else
+        onlineCounterLabel:SetText("Online Addon Users: |cFFFF0000Not in Guild|r")
+    end
+end)
 
 ----------------------------------------
 -- VIEWER LOGIC & DROPDOWNS
@@ -1095,9 +1278,21 @@ function UpdateViewer()
             local groupTag = ""
             if entryGroup ~= "Main Raid" then groupTag = " [" .. entryGroup .. "]" end
             
-            local addedByTag = entry.addedBy and " |cFF888888(Added by " .. entry.addedBy .. ")|r" or ""
+            local addedByTag = ""
+            if entry.addedBy and entry.addedBy ~= "" then
+                addedByTag = " |cFF888888(Added by " .. entry.addedBy .. ")|r"
+            end
 
-            messageFrame:AddMessage(displayTime .. " - " .. entry.player .. " looted " .. entry.item .. " in " .. entryZone .. groupTag .. addedByTag)
+            -- NEW: Grab Class Color from Cache
+            local classFile = WHB_PlayerClassCache[entry.player]
+            local pColor = "ffffcc00" -- Default gold if not found
+            if classFile and RAID_CLASS_COLORS[classFile] then
+                local c = RAID_CLASS_COLORS[classFile]
+                pColor = c.colorStr or string.format("ff%02x%02x%02x", (c.r or 0)*255, (c.g or 0)*255, (c.b or 0)*255)
+            end
+            local coloredPlayerName = "|c" .. pColor .. entry.player .. "|r"
+
+            messageFrame:AddMessage(displayTime .. " - " .. coloredPlayerName .. " looted " .. entry.item .. " in " .. entryZone .. groupTag .. addedByTag)
             hasData = true
         end
     end
@@ -1166,6 +1361,7 @@ end
 local exportBtn = CreateFrame("Button", nil, mainWindow, "UIPanelButtonTemplate")
 exportBtn:SetPoint("BOTTOMLEFT", 10, 10); exportBtn:SetSize(100, 25)
 
+local manualAddTabBtn = CreateFrame("Button", "WHBManualTabBtn", mainWindow, "UIPanelButtonTemplate")
 manualAddTabBtn:SetPoint("LEFT", exportBtn, "RIGHT", 10, 0); manualAddTabBtn:SetSize(100, 25)
 manualAddTabBtn:SetText("Manual Add")
 
@@ -1214,7 +1410,10 @@ exportBtn:SetScript("OnClick", function()
             local playerMatch = (searchText == "" or string.find((entry.player or ""):lower(), searchText, 1, true) ~= nil)
             
             if zoneMatch and groupMatch and dateMatch and playerMatch then
-                local addedByStr = entry.addedBy and (" (Added by " .. entry.addedBy .. ")") or ""
+                local addedByStr = ""
+                if entry.addedBy and entry.addedBy ~= "" then
+                    addedByStr = " (Added by " .. entry.addedBy .. ")"
+                end
                 csvData = csvData .. entry.time .. "," .. (entry.player or "Unknown") .. "," .. (entry.item or "Unknown") .. addedByStr .. "," .. entryZone .. "," .. entryGroup .. "\n"
             end
         end

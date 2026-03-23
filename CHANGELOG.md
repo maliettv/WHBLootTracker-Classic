@@ -1,6 +1,25 @@
 # Changelog - WHB Loot Tracker Classic
 
 All notable changes to this project will be documented in this file.
+
+## [1.7.3 French Toast] - 2026-03-21
+
+**✨ New Features & Updates**
+* **Item ID Database Lookup:** Completely rebuilt the "Manual Add" tab. Instead of fighting the modern WoW chat UI to intercept shift-clicks, the tool now strictly accepts numeric **Item IDs** (e.g., *28773*). It queries the local client cache to pull the official, flawless, color-coded item link directly from the server.
+* **Live Guild Roster Tracking:** Added an "Online Addon Users" counter to the Credits tab. When opened, it runs a silent background ping/pong check across the guild channel to show exactly how many members are actively running the tracker.
+* **Class Colors in Viewer:** Player names in the main loot viewer are now painted with their official Blizzard class colors. The addon silently caches the guild roster upon logging in to map class data to player names.
+* **Ragefire Chasm Testing Ground:** Added Ragefire Chasm (RFC) to the valid tracking zones and explicitly bypassed the `IsInRaid()` lock for this specific dungeon to allow Officers to test the addon in a 5-man environment.
+
+**🛠️ Quality of Life (QoL)**
+* **Master Loot "No to All" Flow:** When the Master Looter loots an item to themselves, the item is safely stashed as "Pending Trade" to prevent database clutter, and a confirmation dialog pops up. Added a **"No to All"** button to this dialog that suppresses the popup for the remainder of the instance—perfect for vacuuming up trash loot.
+* **Auto-Reassign Pending Trades:** The auto-trade tracking engine was updated so that when you trade an item to a winner, it actively hunts down and overwrites items labeled as "Pending Trade".
+* **Cursor Snapping:** When manually adding an item, submitting the entry will automatically clear the fields and reset your focus, streamlining bulk entries.
+
+**🐛 Bug Fixes**
+* **Blank "Added By" Tags:** Fixed a formatting error where natural boss drops were evaluating an empty string as `true`, resulting in an ugly `(Added by )` tag in the viewer and CSV exports. Implemented strict `nil` checks to ensure standard loot drops stay clean.
+
+---
+
 ## [1.7.0 🥚EggsBenny] - 2026-03-21
 
 ### 🚀 Added
